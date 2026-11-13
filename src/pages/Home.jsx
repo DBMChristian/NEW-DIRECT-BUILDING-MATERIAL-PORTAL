@@ -16,16 +16,23 @@ const startOf = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x
 /* an enquiry in full: who, how to reach them, what they want, their plans, who has it, its status and notes */
 const ESTATUS = [['new', 'New'], ['working', 'Working on it'], ['quoted', 'Quoted'], ['closed', 'Closed (lost)']];
 function EnquiryPanel({ e, me, onClose, onSaved }) {
-  const [status, setStatus] = useState(e.status);
-  const [note, setNote] = useState(e.note || '');
+  const [notes, setNotes] = useState(null);
+  const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const save = async (patch) => { setBusy(true); setErr(''); const { error } = await supabase.from('enquiries').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', e.id); setBusy(false); if (error) setErr(error.message); else onSaved(); };
-  const mine = e.taken_by === me.email;
+  const [cur, setCur] = useState(e);
+  const loadNotes = () => supabase.from('enquiry_notes').select('*').eq('enquiry_id', e.id).order('created_at', { ascending: false }).then(({ data }) => setNotes(data || []));
+  useEffect(() => { loadNotes(); }, [e.id]);
+  const save = async (patch) => { setBusy(true); setErr(''); const { error } = await supabase.from('enquiries').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', e.id); setBusy(false); if (error) setErr(error.message); else { setCur({ ...cur, ...patch }); onSaved(); } };
+  const addNote = async () => { const t = text.trim(); if (!t) return; setBusy(true); setErr('');
+    const { error } = await supabase.from('enquiry_notes').insert({ enquiry_id: e.id, text: t, by_email: me.email, by_name: me.name || me.email.split('@')[0] });
+    setBusy(false); if (error) setErr(error.message); else { setText(''); loadNotes(); } };
+  const mine = cur.taken_by === me.email;
+  const when = (t) => new Date(t).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   return (
     <div className="ap-wrap" role="dialog" aria-modal="true" aria-labelledby="en-t">
       <div className="ap">
-        <header className="ap-h"><div><h3 id="en-t">{e.name || 'No name'}</h3><p>Website enquiry · {new Date(e.created_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })} · {ago(e.created_at)} ago</p></div><button type="button" className="ap-x" onClick={onClose} aria-label="Close">×</button></header>
+        <header className="ap-h"><div><h3 id="en-t">{e.name || 'No name'}</h3><p>Website enquiry · {when(e.created_at)} · {ago(e.created_at)} ago</p></div><button type="button" className="ap-x" onClick={onClose} aria-label="Close">×</button></header>
         <section className="ap-s en-d">
           {[['Phone', e.phone && <a href={'tel:' + e.phone.replace(/[^0-9+]/g, '')}>{e.phone}</a>], ['Email', e.email && <a href={'mailto:' + e.email}>{e.email}</a>], ['Site address', e.site_address || e.location], ['Product', e.product], ['How warm', e.temp]].filter((x) => x[1]).map(([k, v]) => <div key={k}><small>{k}</small><span>{v}</span></div>)}
         </section>
@@ -33,13 +40,19 @@ function EnquiryPanel({ e, me, onClose, onSaved }) {
         {e.attachment_url && <section className="ap-s"><h4>Their plans</h4><a className="hm-btn" href={e.attachment_url} target="_blank" rel="noreferrer">Open the file ↗</a></section>}
         <section className="ap-s">
           <h4>Who has it</h4>
-          <p className="en-who">{e.taken_by_name ? <><b>{e.taken_by_name}</b>{mine ? ' (you)' : ''}</> : 'Nobody yet'}</p>
-          {!mine && <button type="button" className="hm-btn hm-red-btn" disabled={busy} onClick={() => save({ status: e.status === 'new' ? 'working' : e.status, taken_by: me.email, taken_by_name: me.name || me.email.split('@')[0] })}>{e.taken_by ? 'Take it over' : "I'll take it"}</button>}
-          <label className="ap-f">STATUS<select value={status} onChange={(ev) => setStatus(ev.target.value)} className="en-sel">{ESTATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-          <label className="ap-f">NOTES<textarea rows={4} value={note} onChange={(ev) => setNote(ev.target.value)} placeholder="Called, left a message; quote sent…" className="en-note" /></label>
-          {err && <p className="msg bad">{err}</p>}
-          <div className="ap-foot"><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn btn-red" disabled={busy || (status === e.status && note === (e.note || ''))} onClick={() => save({ status, note })}>Save</button></div>
+          <p className="en-who">{cur.taken_by_name ? <><b>{cur.taken_by_name}</b>{mine ? ' (you)' : ''}</> : 'Nobody yet'}</p>
+          {!mine && <button type="button" className="hm-btn hm-red-btn" disabled={busy} onClick={() => save({ status: cur.status === 'new' ? 'working' : cur.status, taken_by: me.email, taken_by_name: me.name || me.email.split('@')[0] })}>{cur.taken_by ? 'Take it over' : "I'll take it"}</button>}
+          <label className="ap-f">STATUS<select value={cur.status} disabled={busy} onChange={(ev) => save({ status: ev.target.value })} className="en-sel">{ESTATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         </section>
+        <section className="ap-s">
+          <h4>Notes {notes && notes.length ? <span className="en-nc">{notes.length}</span> : null}</h4>
+          <div className="en-add"><textarea rows={2} value={text} onChange={(ev) => setText(ev.target.value)} placeholder="Add a note: called, left a message; quote sent…" className="en-note" /><button type="button" className="btn btn-red" disabled={busy || !text.trim()} onClick={addNote}>Add note</button></div>
+          {notes === null ? <p className="ap-sub">Loading…</p> : !notes.length ? <p className="ap-sub">No notes yet.</p> : notes.map((n) => (
+            <div key={n.id} className="en-n"><p>{n.text}</p><small>Added by <b>{n.by_name || n.by_email}</b> · {when(n.created_at)}</small></div>
+          ))}
+          {err && <p className="msg bad">{err}</p>}
+        </section>
+        <div className="ap-foot"><button type="button" className="btn" onClick={onClose}>Close</button></div>
       </div>
     </div>
   );

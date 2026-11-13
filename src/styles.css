@@ -391,3 +391,9 @@ a.ad-row:hover{background:#FAFAF9}
 .en-sel,.en-note{font-family:Inter,Arial,sans-serif;letter-spacing:0;border:1px solid var(--soft);border-radius:8px;font-size:13.5px;color:var(--ink);padding:8px 10px;resize:vertical}
 .en-sel{height:38px;padding:0 8px}
 .hm-appr{color:#92400E}
+
+/* enquiry notes, each with who and when (13 Nov 2026) */
+.en-add{display:flex;flex-direction:column;gap:8px}.en-add .btn{align-self:flex-end;height:34px}
+.en-n{background:#FAFAF9;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.en-n p{margin:0;font-size:13.5px;white-space:pre-wrap}.en-n small{font-size:11.5px;color:var(--muted)}.en-n small b{color:var(--ink)}
+.en-nc{display:inline-block;background:var(--ink);color:#fff;border-radius:999px;font-size:11px;padding:0 7px;margin-left:4px}

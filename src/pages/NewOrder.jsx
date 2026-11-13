@@ -352,7 +352,13 @@ export default function NewOrder() {
     for (const x of data.pos || []) { const P = pos[x.sort]; if (!P) continue; const em = emailOf(P), m = poMail(P, x.number, data.number);
       try { await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); sent.push(x.number + ' to ' + P.supplier); }
       catch (e) { failed.push(x.number + ' to ' + P.supplier + ': ' + e.message); } }
-    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name, sent, failed });
+    /* each PO set to Yes goes into its supplier's portal (OrderConcrete, OrderPods, OrderSteel): Direct's items only */
+    const portal = [];
+    for (const x of data.pos || []) { const P = pos[x.sort]; if (!P || !P.portal) continue;
+      const r = await supabase.functions.invoke('portal-po', { body: { action: 'send', order_id: x.id } });
+      let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
+      portal.push(b?.sent ? { ok: true, text: x.number + ' is in ' + P.portal + ' as ' + b.order_id } : { ok: false, text: x.number + ' not in ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : '') }); }
+    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name, sent, failed, portal });
   };
   /* Unfinished forms: the drafts that have a company or a total; Continue DRAFT-n opens the last one (as before) */
   const [drafts, setDrafts] = useState([]);
@@ -390,6 +396,7 @@ export default function NewOrder() {
       <div className="no-done"><div className="no-card"><h2>{done.number}</h2><p>{done.kind === 'quote' ? 'The quote is saved.' : 'The order is placed: it is on Home under Pending, and its invoice and POs are in the Xero queue (Admin › Not yet in Xero).'}</p>
         {(done.sent || []).length > 0 && <p className="msg">PO emails sent: {done.sent.join(' · ')}.</p>}
         {(done.failed || []).length > 0 && <p className="msg bad">Not sent: {done.failed.join(' · ')}. Send them from the order page.</p>}
+        {(done.portal || []).map((x, i) => <p key={i} className={x.ok ? 'msg' : 'msg bad'}>{x.text}</p>)}
         <div className="no-row"><button type="button" className="btn btn-red" onClick={restart}>New order</button><button type="button" className="btn" onClick={() => nav('/')}>Home</button></div></div></div>
     </>
   );
@@ -564,7 +571,7 @@ export default function NewOrder() {
                 {(() => { const cats = new Set(Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).map((k) => lineOf(k)?.category)); return <>
                   {cats.has('Concrete') && questions('Concrete', catAnswers('Concrete'), (ch) => setCatAns('Concrete', ch))}
                   {cats.has('Wafflepods') && catDelivery('Wafflepods') && questions('Wafflepods', catAnswers('Wafflepods'), (ch) => setCatAns('Wafflepods', ch))}</>; })()}
-                <div className="no-poem">{P.send === false ? <span>Not sent: kept with the order only.</span> : (() => { const em = emailOf(P); return em.to ? <span>Email to <b>{em.to}</b>{em.cc ? <> · CC {em.cc}</> : null}{P.portal ? ' · ' + P.portal : ''}</span> : <span className="no-warn">No email for {P.supplier || 'this supplier'}: add it in Admin › Suppliers.</span>; })()}
+                <div className="no-poem">{P.send === false ? <span>Not sent: kept with the order only.</span> : (() => { const em = emailOf(P); return em.to ? <span>{P.portal ? <>Into <b>{P.portal}</b> (items only) and email</> : 'Email'} to <b>{em.to}</b>{em.cc ? <> · CC {em.cc}</> : null}</span> : <span className="no-warn">No email for {P.supplier || 'this supplier'}: add it in Admin › Suppliers.</span>; })()}
                   <button type="button" className="btn" onClick={() => setPreview(poMail(P, ''))}>Preview email</button></div>
                 <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th className="r">Unit cost</th><th className="r">Cost</th><th>Move to</th></tr></thead><tbody>
                   {Object.entries(P.items).filter(([, v]) => Number(v) > 0).map(([k, v]) => { const l = lineOf(k); if (!l) return null; return (

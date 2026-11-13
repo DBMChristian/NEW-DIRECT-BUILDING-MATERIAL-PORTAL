@@ -79,7 +79,7 @@ function MonthPicker({ value, onPick, onClose }) {
 function Col({ dot, title, sub, n, nColor, children, label }) {
   return (
     <section className="hm-col" aria-label={label || title}>
-      <div className="hm-ch"><span className="hm-dot" style={{ background: dot }} /><div><b>{title}</b><small>{sub}</small></div>{n != null && <span className="hm-n" style={nColor ? { background: nColor } : undefined}>{n}</span>}</div>
+      <div className="hm-ch hm-ch-fill" style={{ background: dot }}><div><b>{title}</b><small>{sub}</small></div>{n != null && <span className="hm-n hm-n-fill" style={{ color: dot }}>{n}</span>}</div>
       {children}
     </section>
   );
@@ -171,13 +171,13 @@ export default function Home() {
           </div>
         ) : (
           <div className="hm-cols">
-            <Col dot="#D97706" title="Pending" sub="Not booked yet" n={0}>
+            <Col dot="#B45309" title="Pending" sub="Not booked yet" n={0}>
               <Tabs value={ptab} set={setPtab} counts={{ all: 0, delivery: 0, pickup: 0 }} />
               <div className="hm-list"><div className="hm-empty">Nothing to book. Orders show here once New Order is built.</div></div>
               <div className="hm-sec"><span className="hm-dot" style={{ background: '#EA580C' }} />ON HOLD 0</div>
               <div className="hm-list"><div className="hm-empty hm-small">No order on hold.</div></div>
             </Col>
-            <Col dot="#16A34A" title={dayLabel} sub={day.getTime() === today.getTime() ? dayName(day) + ' · booked for today' : 'Booked for this day'} n={0} nColor="#16A34A" label="The chosen day">
+            <Col dot="#15803D" title={dayLabel} sub={day.getTime() === today.getTime() ? dayName(day) + ' · booked for today' : 'Booked for this day'} n={0} nColor="#16A34A" label="The chosen day">
               <Tabs value={dtab} set={setDtab} counts={{ all: 0, delivery: 0, pickup: 0 }} />
               <div className="hm-list"><div className="hm-empty">No booked orders {range === 'week' ? 'this week' : 'on ' + dayName(day)}.</div></div>
             </Col>
@@ -192,7 +192,7 @@ export default function Home() {
                 {(cod || []).length > 6 && <button type="button" className="link hm-more" onClick={() => setCodAll(!codAll)}>{codAll ? 'Show fewer' : 'See all ' + cod.length}</button>}
               </div>
             </Col>
-            <Col dot="#0891B2" title="Website enquiries" sub={enq === null ? 'Loading…' : newEnq + ' new · ' + ((enq || []).length - newEnq) + ' being worked on'} n={enq ? enq.length : null} nColor="#0891B2">
+            <Col dot="#0E7490" title="Website enquiries" sub={enq === null ? 'Loading…' : newEnq + ' new · ' + ((enq || []).length - newEnq) + ' being worked on'} n={enq ? enq.length : null} nColor="#0891B2">
               <div className="hm-list">
                 {enq !== null && !enq.length && <div className="hm-empty">No open enquiries. New ones from the website show here.</div>}
                 {(enq || []).map((e) => (

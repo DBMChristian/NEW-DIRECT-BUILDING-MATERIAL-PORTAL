@@ -81,7 +81,7 @@ export default function AdminProducts() {
         <div className="pp-bar">
           <div className="pp-xero">
             <span className={'pp-dot' + (status?.connected ? ' on' : '')} />
-            <span>{status === null ? 'Checking Xero…' : status.error ? 'Xero: ' + status.error : status.connected ? <>Xero: <b>{status.tenant}</b>{last ? <> · last sync {when(last.finished_at || last.started_at)}{last.ok === false ? ' (failed)' : ''}</> : ' · not synced yet'}</> : status.setup === false ? 'Xero is not set up yet (the app keys)' : 'Xero is not connected'}</span>
+            <span>{status === null ? 'Checking Xero…' : status.error ? 'Xero: ' + status.error : status.connected ? <>Xero: <b>{status.tenant}</b> · syncs by itself every 30 minutes{last ? <> · last {when(last.finished_at || last.started_at)}{/^auto/.test(last.by_email || '') ? ' (auto)' : ' by ' + String(last.by_email || '').split('@')[0]}{last.ok === false ? ' · failed: ' + (last.error || '') : ''}</> : ' · not synced yet'}</> : status.setup === false ? 'Xero is not set up yet (the app keys)' : 'Xero is not connected'}</span>
           </div>
           {status && !status.error && (status.connected
             ? <button type="button" className="btn btn-red" onClick={sync} disabled={!!busy}><Icon name="sync" size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync from Xero'}</button>

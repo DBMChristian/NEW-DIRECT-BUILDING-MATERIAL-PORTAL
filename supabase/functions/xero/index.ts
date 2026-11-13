@@ -6,6 +6,7 @@
 //   POST { action: "sync_items" }      pulls every Xero item into products (codes, names, descriptions, Xero's prices);
 //                                      Direct's own columns (category, unit, price lists) are never changed by it.
 // Only admins (staff.role = admin) can connect or sync; anyone signed in on the staff list can read the status.
+// Every 30 minutes the database's own job (pg_cron) runs sync_items with its key (app_secrets.xero_cron_key).
 // Deploy: npx supabase functions deploy xero --project-ref qnfuifckyfhiuvqyvkvf --no-verify-jwt
 // Secrets: XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI (= https://<project>.supabase.co/functions/v1/xero/callback)
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -59,7 +60,9 @@ Deno.serve(async (req) => {
       await priv().from("xero_oauth_state").delete().eq("state", state);
       const back = (ok: boolean, msg: string) => Response.redirect(st.return_to + (st.return_to.includes("?") ? "&" : "?") + "xero=" + (ok ? "connected" : "failed") + "&msg=" + encodeURIComponent(msg), 302);
       if (!code) return back(false, url.searchParams.get("error_description") || url.searchParams.get("error") || "Xero did not connect");
-      const t = await tokenCall({ grant_type: "authorization_code", code, redirect_uri: env("XERO_REDIRECT_URI") });
+      let t;
+      try { t = await tokenCall({ grant_type: "authorization_code", code, redirect_uri: env("XERO_REDIRECT_URI") }); }
+      catch (e) { return back(false, e instanceof Error ? e.message : String(e)); }
       const cr = await fetch("https://api.xero.com/connections", { headers: { Authorization: "Bearer " + t.access_token, "Content-Type": "application/json" } });
       const conns = await cr.json().catch(() => []);
       const org = (Array.isArray(conns) ? conns : []).find((c: any) => c.tenantType === "ORGANISATION");
@@ -69,7 +72,14 @@ Deno.serve(async (req) => {
       return back(true, "Connected to " + org.tenantName);
     }
     if (req.method !== "POST") return json({ error: "POST only" }, 405);
-    const who = await caller(req);
+    /* the database's own job (pg_cron, every 30 minutes) calls with its key from app_secrets: it syncs as "auto" */
+    let who = null as null | { email: string; role: string };
+    const cronKey = req.headers.get("x-cron-key");
+    if (cronKey) {
+      const { data: k } = await admin().from("app_secrets").select("value").eq("name", "xero_cron_key").maybeSingle();
+      if (!k?.value || k.value !== cronKey) return json({ error: "Wrong key" }, 401);
+      who = { email: "auto (every 30 minutes)", role: "admin" };
+    } else who = await caller(req);
     if (!who) return json({ error: "Sign in first" }, 401);
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "");
@@ -112,10 +122,14 @@ Deno.serve(async (req) => {
           xero_item_id: it.ItemID, xero_sales_price: num(it.SalesDetails?.UnitPrice), xero_cost_price: num(it.PurchaseDetails?.UnitPrice),
           xero_sales_account: it.SalesDetails?.AccountCode || null, xero_tax_type: it.SalesDetails?.TaxType || null,
           is_sold: it.IsSold !== false, is_purchased: it.IsPurchased === true, in_xero: true, synced_at: now, updated_at: now }));
-        for (const row of rows) {
-          const old = byId.get(String(row.xero_item_id)) || byCode.get(row.code.toLowerCase());
-          if (old) { seen.add(old.id); const u = await admin().from("products").update(row).eq("id", old.id); if (u.error) throw new Error(row.code + ": " + u.error.message); updated++; }
-          else { const i = await admin().from("products").insert(row); if (i.error) throw new Error(row.code + ": " + i.error.message); added++; }
+        /* all at once, in blocks of 500 (one at a time took minutes): by code, Xero's columns only, so Direct's own
+           (category, unit, price lists) stay as they are */
+        for (const row of rows) { const old = byId.get(String(row.xero_item_id)) || byCode.get(row.code.toLowerCase()); if (old) { seen.add(old.id); updated++; } else added++; }
+        /* a code changed in Xero: the product keeps its own row (and Direct's prices), under the new code */
+        for (const row of rows) { const old = byId.get(String(row.xero_item_id)); if (old && String(old.code) !== row.code) { const c = await admin().from("products").update({ code: row.code }).eq("id", old.id); if (c.error) throw new Error(row.code + ": " + c.error.message); } }
+        for (let i = 0; i < rows.length; i += 500) {
+          const u = await admin().from("products").upsert(rows.slice(i, i + 500), { onConflict: "code" });
+          if (u.error) throw new Error("Saving the products: " + u.error.message);
         }
         const gone = (have || []).filter((p: any) => p.xero_item_id && !seen.has(p.id) && !rows.some((x) => x.xero_item_id === p.xero_item_id)).map((p: any) => p.id);
         if (gone.length) await admin().from("products").update({ in_xero: false, updated_at: now }).in("id", gone);

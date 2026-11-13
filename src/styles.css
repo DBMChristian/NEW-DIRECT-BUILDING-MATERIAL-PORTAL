@@ -216,3 +216,4 @@ a.ad-row:hover{background:#FAFAF9}
 .cu-allhist{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .cu-allhist > b{display:block;font-size:13px;margin-bottom:6px}.cu-allhist small{font-weight:400;color:var(--muted);margin-left:6px}
 @media (max-width:820px){.cu-hist li{grid-template-columns:1fr}}
+.cu-hist b,.cu-hist s,.cu-hist em{display:inline!important}

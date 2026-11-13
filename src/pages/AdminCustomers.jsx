@@ -67,6 +67,8 @@ function Notes({ c, notes, me, myName, onChange, lists }) {
   const [tab, setTab] = useState('notes');
   const [hist, setHist] = useState(null);
   useEffect(() => { if (tab === 'history') supabase.from('customer_history').select('*').eq('customer_id', c.id).order('at', { ascending: false }).limit(300).then(({ data }) => setHist(data || [])); }, [tab, c.id, notes]);
+  const [histN, setHistN] = useState(null);
+  useEffect(() => { supabase.from('customer_history').select('id', { count: 'exact', head: true }).eq('customer_id', c.id).then(({ count }) => setHistN(count ?? 0)); }, [c.id, notes, c.on_hold, c.terms, c.credit_limit, c.price_list]);
   const [text, setText] = useState('');
   const [edit, setEdit] = useState(null);
   const add = async () => { const t = text.trim(); if (!t) return; const { error } = await supabase.from('customer_notes').insert({ customer_id: c.id, text: t, by_email: me, by_name: myName }); if (!error) { setText(''); onChange(); } };
@@ -77,7 +79,7 @@ function Notes({ c, notes, me, myName, onChange, lists }) {
       <div className="cu-det">
         {[['Email', c.email], ['Phone', c.phone], ['Mobile', c.mobile], ['Address', [c.street, c.suburb, c.state, c.postcode].filter(Boolean).join(', ')], ['ABN', c.abn], ['Xero account no.', c.account_number]].filter((x) => x[1]).map(([k, v]) => <span key={k}><small>{k}</small>{v}</span>)}
       </div>
-      <div className="cu-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === 'notes'} className={tab === 'notes' ? 'on' : ''} onClick={() => setTab('notes')}>Notes ({notes.length})</button><button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>History</button></div>
+      <div className="cu-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === 'notes'} className={tab === 'notes' ? 'on' : ''} onClick={() => setTab('notes')}>Notes ({notes.length})</button><button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>History{histN != null ? ' (' + histN + ')' : ''}</button></div>
       {tab === 'history' ? <History rows={hist} lists={lists} /> : <>
       <b className="cu-nh">Notes <small>shown in red on every order of {c.name}</small></b>
       {!notes.length && <p className="cu-none">No notes yet.</p>}

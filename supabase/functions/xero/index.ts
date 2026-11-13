@@ -67,8 +67,15 @@ Deno.serve(async (req) => {
       catch (e) { return back(false, e instanceof Error ? e.message : String(e)); }
       const cr = await fetch("https://api.xero.com/connections", { headers: { Authorization: "Bearer " + t.access_token, "Content-Type": "application/json" } });
       const conns = await cr.json().catch(() => []);
-      const org = (Array.isArray(conns) ? conns : []).find((c: any) => c.tenantType === "ORGANISATION");
-      if (!org) return back(false, "No Xero organisation was chosen");
+      /* the organisation chosen in THIS sign-in (Xero lists every organisation ever connected to the app; the token says
+         which sign-in it came from), so choosing Direct is never overridden by an earlier choice (13 Nov 2026) */
+      let ev = "";
+      try { ev = JSON.parse(atob(t.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).authentication_event_id || ""; } catch { /* none */ }
+      const orgs = (Array.isArray(conns) ? conns : []).filter((c: any) => c.tenantType === "ORGANISATION");
+      const org = orgs.find((c: any) => ev && c.authEventId === ev) || (orgs.length === 1 ? orgs[0] : null);
+      if (!org) return back(false, "Choose one Xero organisation (" + orgs.map((c: any) => c.tenantName).join(", ") + "): press Reconnect and tick only Direct Building Material.");
+      /* this app is the new portal's own: any other organisation connected to it is disconnected, so it can never be used */
+      for (const c of orgs) if (c.id !== org.id) { try { await fetch("https://api.xero.com/connections/" + c.id, { method: "DELETE", headers: { Authorization: "Bearer " + t.access_token } }); } catch { /* left */ } }
       await priv().from("xero_link").upsert({ id: 1, tenant_id: org.tenantId, tenant_name: org.tenantName, access_token: t.access_token, refresh_token: t.refresh_token,
         expires_at: new Date(Date.now() + t.expires_in * 1000).toISOString(), connected_by: st.by_email, connected_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       return back(true, "Connected to " + org.tenantName);

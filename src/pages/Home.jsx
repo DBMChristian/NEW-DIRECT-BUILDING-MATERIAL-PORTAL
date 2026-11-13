@@ -167,7 +167,7 @@ export default function Home() {
                     <div className="hm-meta">{[e.product, e.site_address || e.location, e.phone].filter(Boolean).join(' · ')}</div>
                     {e.message && <div className="hm-msg">{e.message}</div>}
                     {e.attachment_url && <a className="hm-att" href={e.attachment_url} target="_blank" rel="noreferrer">Their plans ↗</a>}
-                    <div className="hm-row hm-acts">{e.taken_by !== staff.email && <button type="button" className="hm-btn hm-red-btn" onClick={() => take(e)}>{e.taken_by ? 'Take it over' : "I'll take it"}</button>}<button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button>{e.phone && <a className="hm-btn" href={'tel:' + e.phone.replace(/[^0-9+]/g, '')}>Call</a>}</div>
+                    <div className="hm-row hm-acts">{e.taken_by !== staff.email && <button type="button" className="hm-btn hm-red-btn" onClick={() => take(e)}>{e.taken_by ? 'Take it over' : "I'll take it"}</button>}<button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button></div>
                   </div>
                 ))}
               </div>

@@ -60,6 +60,7 @@ export default function NewOrder() {
   const [uploading, setUploading] = useState(false);
   const [newCust, setNewCust] = useState(null);
   const [folded, setFolded] = useState({});   /* materials minimised in Build SO */
+  const [foldedPo, setFoldedPo] = useState({});   /* POs minimised in Build PO */
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
   const [cat, setCat] = useState(''); const [q, setQ] = useState(''); const [all, setAll] = useState(false);
   const [saved, setSaved] = useState(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(null); const [done, setDone] = useState(null);
@@ -564,11 +565,12 @@ export default function NewOrder() {
           </>}
 
           {tab === 'po' && <section className="no-card" aria-label="Build PO">
-            <div className="no-ct">Build PO <small>one PO per supplier</small></div>
+            <div className="no-ct">Build PO <small>one PO per supplier</small>{pos.length > 1 && <span className="no-foldall"><button type="button" className="link" onClick={() => setFoldedPo(Object.fromEntries(pos.map((P) => [P.uid, true])))}>Minimise all</button><button type="button" className="link" onClick={() => setFoldedPo({})}>Expand all</button></span>}</div>
             {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
             {pos.map((P, i) => (
               <div key={P.uid} className="no-grp">
-                <div className="no-gh" style={{ background: '#1E1A17' }}>PO {i + 1} <small>{P.supplier || 'No supplier yet'}{P.portal ? ' · ' + P.portal : ''}</small>{posHand && <button type="button" className="no-ghx" onClick={() => editPos((Ps) => Ps.filter((x) => x.uid !== P.uid))}>Remove PO</button>}</div>
+                <div className="no-gh no-ghb" style={{ background: '#1E1A17' }}><button type="button" className="no-fold" aria-expanded={!foldedPo[P.uid]} aria-label={(foldedPo[P.uid] ? 'Expand ' : 'Minimise ') + 'PO ' + (i + 1)} onClick={() => setFoldedPo((f) => ({ ...f, [P.uid]: !f[P.uid] }))}>{foldedPo[P.uid] ? '▸' : '▾'}</button>PO {i + 1} <small>{P.supplier || 'No supplier yet'}{P.portal ? ' · ' + P.portal : ''}{foldedPo[P.uid] ? ' · ' + Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length + ' product' + (Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length === 1 ? '' : 's') + ' · Send ' + (P.send == null ? 'not chosen' : P.send ? 'Yes' : 'No') : ''}</small>{posHand && <button type="button" className="no-ghx" onClick={() => editPos((Ps) => Ps.filter((x) => x.uid !== P.uid))}>Remove PO</button>}</div>
+                {!foldedPo[P.uid] && <>
                 <div className="no-load">
                   <label className="no-f">Supplier<select value={P.supplier_id || ''} onChange={(e) => { const sp = suppliers.find((x) => String(x.id) === e.target.value); const rt = routes.find((r) => String(r.supplier_id) === e.target.value); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, supplier_id: sp?.id || null, supplier: sp?.name || '', portal: rt?.portal || '' } : x))); }}><option value="">Choose…</option>{suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></label>
                   {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), lds = loads.filter((L) => ks.some((k) => qtyIn(L.items, k) > 0)), f = lds.length && lds.every((L) => L.fulfil === 'pickup') ? 'pickup' : lds.some((L) => L.fulfil === 'pickup') ? 'mixed' : 'delivery';
@@ -596,6 +598,7 @@ export default function NewOrder() {
                     return <>{its.map(xrow)}{chs2.length > 0 && <tr className="no-chh"><td colSpan="6">ADDITIONAL CHARGES</td></tr>}{chs2.map(xrow)}
                       <tr className="no-pot"><td colSpan="4">PO total (cost, ex GST) · to Xero as {P.send ? 'the purchase order' : 'nothing (not sent)'}</td><td className="r"><b>{cash(total)}</b></td><td /></tr></>; })()}
                 </tbody></table></div>
+                </>}
               </div>))}
             {stockKeys.length > 0 && <div className="no-grp"><div className="no-gh" style={{ background: '#57534E' }}>From Penrith stock <small>no PO</small></div>
               <div className="no-tw"><table className="no-t"><tbody>{stockKeys.map((k) => { const l = lineOf(k); return (

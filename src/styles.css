@@ -639,3 +639,4 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .ad-pop button:hover,.ad-pop button.on{background:#FEF2F2}
 .ad-pop small{font-size:10.5px;color:#78716C;padding:4px 10px 2px;text-align:right}
 .no-load .ad-wrap input{height:30px}
+.ad-prob{display:block;margin-top:3px;font-size:11.5px;color:#B91C1C;line-height:1.3}

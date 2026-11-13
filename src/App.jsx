@@ -10,6 +10,7 @@ import AdminUsers from './pages/AdminUsers.jsx';
 import AdminProducts from './pages/AdminProducts.jsx';
 import AdminSuppliers from './pages/AdminSuppliers.jsx';
 import AdminCustomers from './pages/AdminCustomers.jsx';
+import AdminXero from './pages/AdminXero.jsx';
 
 export default function App() {
   const { session, staff, loading, signOut } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="admin/users" element={staff.role === 'admin' ? <AdminUsers /> : <Navigate to="/" replace />} />
         <Route path="admin/products" element={staff.role === 'admin' ? <AdminProducts /> : <Navigate to="/" replace />} />
         <Route path="admin/customers" element={['admin', 'office'].includes(staff.role) ? <AdminCustomers /> : <Navigate to="/" replace />} />
+        <Route path="admin/xero" element={['admin', 'office'].includes(staff.role) ? <AdminXero /> : <Navigate to="/" replace />} />
         <Route path="admin/suppliers" element={staff.role === 'admin' ? <AdminSuppliers /> : <Navigate to="/" replace />} />
         <Route path="notifications" element={<Coming title="Notifications" sub="What needs you" />} />
         <Route path="reminders" element={<Coming title="Reminders" sub="What you need to do" />} />

@@ -233,3 +233,17 @@ a.ad-row:hover{background:#FAFAF9}
 .cu-overdue{display:block!important;color:var(--red)!important;font-weight:700;font-size:11px!important}
 .cu-over{color:var(--red)}
 .cu-total{font-weight:800;font-size:13px}
+
+/* Admin > Xero queue (13 Nov 2026) */
+.xq-bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.xq-done{display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer}
+.xq-n{display:inline-block;background:var(--red);color:#fff;border-radius:999px;padding:0 8px;font-size:12px;vertical-align:2px}
+.xq-empty{padding:22px 16px;color:var(--muted);font-size:13px;text-align:center}
+.xq-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--line);flex-wrap:wrap}.xq-row:first-child{border-top:0}
+.xq-act{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:3px 8px;min-width:78px;text-align:center}
+.xq-a-create{background:#DCFCE7;color:#166534}.xq-a-update{background:#DBEAFE;color:#1E40AF}.xq-a-delete{background:#FEE2E2;color:#991B1B}
+.xq-main{flex:1;min-width:220px;display:flex;flex-direction:column}.xq-main b{font-size:14px}.xq-main small{font-size:12px;color:var(--muted)}
+.xq-err{color:var(--red)!important;font-weight:600}.xq-ok{color:#15803D!important}
+.xq-st{font-size:12px;font-weight:700;color:var(--muted)}.xq-s-failed{color:var(--red)}.xq-s-sending{color:#B45309}.xq-s-done{color:#15803D}
+.xq-btn{height:32px;font-size:12.5px;display:inline-flex;align-items:center;gap:5px;padding:0 12px}
+.xq-failed{background:#FFF7F7}

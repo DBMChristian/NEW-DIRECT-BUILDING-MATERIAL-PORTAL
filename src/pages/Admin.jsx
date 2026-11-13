@@ -29,9 +29,11 @@ export default function Admin() {
   const [products, setProducts] = useState(null);
   const [suppliers, setSuppliers] = useState(null);
   const [customers, setCustomers] = useState(null);
+  const [queued, setQueued] = useState(null);
   useEffect(() => { supabase.from('products').select('id', { count: 'exact', head: true }).eq('in_xero', true).then(({ count }) => setProducts(count ?? 0)); }, []);
   useEffect(() => { supabase.from('suppliers').select('id', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setSuppliers(count ?? 0)); }, []);
   useEffect(() => { supabase.from('customers').select('id', { count: 'exact', head: true }).eq('is_customer', true).eq('in_xero', true).then(({ count }) => setCustomers(count ?? 0)); }, []);
+  useEffect(() => { supabase.from('xero_queue').select('id', { count: 'exact', head: true }).neq('status', 'done').then(({ count }) => setQueued(count ?? 0)); }, []);
   useEffect(() => { supabase.from('staff').select('email', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setStaff(count ?? 0)); }, []);
   return (
     <>
@@ -48,10 +50,7 @@ export default function Admin() {
           <Row to="/admin/users" icon="users" title="Users" sub="Add people, set roles, switch access on or off" n={staff} unit="active" />
         </Section>
         <Section title="Xero" sub="Invoices and purchase orders going to Xero, and anything that failed to go.">
-          <Row icon="sync" title="Not yet in Xero" sub="Waiting or failed, with the reason and a button to send again" soon={6} />
-        </Section>
-        <Section title="Messages" sub="The emails and texts the portal sends to customers and suppliers.">
-          <Row icon="mail" title="Messages" sub="Booking confirmations, invoices, cancellations: what is sent and when" soon={4} />
+          <Row to="/admin/xero" icon="sync" title="Not yet in Xero" sub="Sales orders and purchase orders waiting to go, creating, updating or deleting, with Sync now" n={queued} unit="waiting" />
         </Section>
       </div>
     </>

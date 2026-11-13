@@ -238,6 +238,42 @@ Deno.serve(async (req) => {
         return { error: msg };
       }
     };
+    /* one upload from the queue, now: a sales order is a Xero invoice, a purchase order a Xero purchase order; creating
+       sends the document, updating sends it again with its Xero id, deleting deletes a draft (or voids an approved one) */
+    if (action === "send_queue") {
+      const id = Number(body?.id); if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "Send id" }, 400);
+      const { data: q } = await admin().from("xero_queue").select("*").eq("id", id).maybeSingle();
+      if (!q) return json({ error: "Not in the queue" }, 404);
+      if (q.status === "done") return json({ ok: true, already: true });
+      const claim = await admin().from("xero_queue").update({ status: "sending", attempts: (q.attempts || 0) + 1 }).eq("id", id).neq("status", "sending").select("id");
+      if (!claim.data?.length) return json({ error: "Already being sent" }, 409);
+      try {
+        const l = await access();
+        const isSO = q.kind === "SO", path = isSO ? "Invoices" : "PurchaseOrders", idKey = isSO ? "InvoiceID" : "PurchaseOrderID";
+        const doc = { ...(q.payload || {}) } as Record<string, unknown>;
+        if (q.action !== "create") { if (!q.xero_id) throw new Error("No Xero id to " + q.action + ": it was never created in Xero."); doc[idKey] = q.xero_id; }
+        if (q.action === "delete") {
+          /* a draft or awaiting approval is deleted; an approved invoice can only be voided (purchase orders: deleted) */
+          const cur = await fetch("https://api.xero.com/api.xro/2.0/" + path + "/" + q.xero_id, { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+          const cj = await cur.json().catch(() => ({})), st = String((cj?.[path] || [])[0]?.Status || "");
+          for (const k of Object.keys(doc)) if (k !== idKey) delete doc[k];
+          doc.Status = isSO && st === "AUTHORISED" ? "VOIDED" : "DELETED";
+        }
+        const r = await fetch("https://api.xero.com/api.xro/2.0/" + path, { method: q.action === "create" ? "PUT" : "POST",
+          headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ [path]: [doc] }) });
+        const j = await r.json().catch(() => ({}));
+        const el = (j?.Elements || [])[0], ve = (el?.ValidationErrors || []).map((v: any) => v.Message).join("; ");
+        if (!r.ok || ve) throw new Error("Xero: " + (ve || j?.Detail || j?.Message || j?.Title || r.status));
+        const xid = (j?.[path] || [])[0]?.[idKey] || q.xero_id;
+        await admin().from("xero_queue").update({ status: "done", xero_id: xid, last_error: null, sent_at: new Date().toISOString(), sent_by: who!.email }).eq("id", id);
+        return json({ ok: true, xero_id: xid });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await admin().from("xero_queue").update({ status: "failed", last_error: msg.slice(0, 1000) }).eq("id", id);
+        return json({ error: msg }, 502);
+      }
+    }
     if (action === "sync_items") { const r = await syncItems(); return json(r, (r as any).error ? 502 : 200); }
     if (action === "sync_contacts") { const r = await syncContacts(); return json(r, (r as any).error ? 502 : 200); }
     if (action === "sync_all") { const a = await syncItems(), b = await syncContacts(); return json({ items: a, contacts: b }, (a as any).error || (b as any).error ? 502 : 200); }

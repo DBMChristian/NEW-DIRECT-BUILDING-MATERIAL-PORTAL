@@ -7,6 +7,7 @@ import AddressInput from '../components/AddressInput.jsx';
 import { sendEmail, poEmailHtml } from '../lib/emailjs.js';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
+import { locateSite } from '../lib/wpLocation.js';
 import { EPS_GRADES, epsKind, cutWidth, isPanel, cutSqm, cutBad, isFree, lineName, customMissing } from '../lib/custom.js';
 
 /* New Order (13 Nov 2026), with the previous portal's three tabs under the customer:
@@ -460,6 +461,23 @@ export default function NewOrder() {
     </>
   );
 
+  /* the waffle pod location and driving time worked out from the site (as before), unless chosen by hand */
+  const [wpNote, setWpNote] = useState('');
+  const catAnswersRaw = (c) => (loads.find((M) => lines.some((l) => l.category === c && qtyIn(M.items, l.key) > 0)) || {}).answers || {};
+
+  const wpLoad = loads.find((L) => lines.some((l) => l.category === 'Wafflepods' && qtyIn(L.items, l.key) > 0));
+  const wpSite = String((wpLoad && wpLoad.site) || headSite || '').trim();
+  const wpHand = (catAnswersRaw('Wafflepods') || {}).location_by === 'hand';
+  const lastSite = useRef('');
+  useEffect(() => {
+    if (!lines.some((l) => l.category === 'Wafflepods') || wpSite.length < 8 || wpHand || wpSite === lastSite.current) return;
+    const t = setTimeout(async () => { lastSite.current = wpSite; setWpNote('Finding the site on the map…');
+      try { const r = await locateSite(wpSite); setWpNote(r.note || '');
+        if (r.location) setCatAns('Wafflepods', { location: r.location, location_by: 'map', ...(r.hours ? { hours: r.hours } : {}) }); }
+      catch (e) { setWpNote('The map is not available (' + (e.message || e) + '): choose the location.'); } }, 900);
+    return () => clearTimeout(t);
+  }, [wpSite, wpHand, lines.length]);
+
   /* the waffle pod and concrete questions (as the previous form asks them), in Build SO for the material and in Build
      Load for each load; asked once in Build SO they go on every load carrying that material */
   const questions = (cat, a, set) => {
@@ -469,7 +487,8 @@ export default function NewOrder() {
     const text = (f, label, ph) => <label className={'no-f' + need(a[f])}>{label} <span className="req">*</span><input value={a[f] || ''} onChange={(e) => set({ [f]: e.target.value })} placeholder={ph} /></label>;
     if (cat === 'Wafflepods') return (
       <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
-        {pick('location', 'Location', WP_LOCATIONS)}
+        <div className={'no-f' + need(a.location)}>Location <span className="req">*</span><select value={a.location || ''} onChange={(e) => set({ location: e.target.value, location_by: e.target.value ? 'hand' : '' })}><option value="">Choose…</option>{WP_LOCATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          <small className="no-wpn">{wpNote || (a.location_by === 'map' ? 'Worked out from the site' : '')}{a.location_by === 'hand' && <> · <button type="button" className="link" onClick={() => { lastSite.current = ''; set({ location_by: '' }); }}>Work it out from the site</button></>}</small></div>
         {(a.location === 'NSW' || a.location === 'ACT') && text('hours', 'Driving time (hours, one way)', 'e.g. 2.5')}
         {yn('scrap', 'Scrap pick-up')}{yn('trailer', 'Trailer access')}
         <div className={'no-f' + need(a.gate)}>Gate code <span className="req">*</span><span className="no-gate"><input value={a.gate || ''} onChange={(e) => set({ gate: e.target.value })} placeholder="Code" /><button type="button" className={'btn' + (a.gate === 'N/A' ? ' on' : '')} onClick={() => set({ gate: 'N/A' })}>N/A</button></span></div>

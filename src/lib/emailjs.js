@@ -1,8 +1,8 @@
-/* EmailJS, the same account and template OrderConcrete sends with (its OrderWizard: public key, service and the generic
-   template that takes to_email, cc_email, bcc_email, subject and html_body). .env can point elsewhere:
+/* EmailJS: Direct's own service and template ("DIRECT BUILDING": to_email, cc_email, bcc_email, subject, html_body), in the
+   EmailJS account OrderConcrete uses (its public key). .env can point elsewhere:
    VITE_EMAILJS_SERVICE_ID, VITE_EMAILJS_TEMPLATE_ID, VITE_EMAILJS_PUBLIC_KEY. */
-const SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID || 'service_xjo9kv9';
-const TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'template_k8iy0br';
+const SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID || 'Service_DirectBuilding';   /* Direct's own service and template (13 Nov 2026): from orders@directbuildingmaterial.com.au */
+const TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'template_958phqr';
 const KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'CPotC9kqZTuvNMe4F';
 export const emailReady = Boolean(SERVICE && TEMPLATE && KEY);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

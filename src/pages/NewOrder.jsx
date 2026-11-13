@@ -734,6 +734,9 @@ export default function NewOrder() {
                     <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                       <td><input className="no-price" value={qtyIn(L.items, l.key)} inputMode="decimal" onChange={(e) => setLoadQty(L.uid, l.key, Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)} aria-label={'Quantity of ' + l.name + ' on load ' + L.n} /></td>
                       <td><select className="no-move" value="" onChange={(e) => e.target.value && moveToLoad(l.key, L.uid, e.target.value)}><option value="">Move…</option>{loads.filter((x) => x.uid !== L.uid).map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}</select></td></tr>))}
+                  {/* items the form adds itself for this load (e.g. the free scrap bags): they go on it with its pods */}
+                  {ch.filter((x) => x.asItem && !x.off).map((x) => (
+                    <tr key={'a' + x.key} className="no-autoi"><td><b>{x.name}</b><small className="no-code">{x.code} · added by itself</small></td><td>{x.qty}</td><td>{x.qty}</td><td className="no-sub">follows the pods</td></tr>))}
                 </tbody></table></div>
               </div>); })}
             {(() => { const left = lines.map((l) => ({ l, rest: r2(l.qty - loads.reduce((t, L) => t + qtyIn(L.items, l.key), 0)) })).filter((x) => x.rest > 1e-6);

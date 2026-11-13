@@ -96,7 +96,7 @@ export default function AdminCustomers() {
 
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return (rows || []).filter((r) => (show === 'all' ? true : show === 'archived' ? (r.xero_status === 'ARCHIVED' || !r.in_xero) : r.xero_status !== 'ARCHIVED' && r.in_xero && (show === 'customers' ? r.is_customer || !r.is_supplier : show === 'notes' ? (notes[r.id] || []).length : r.is_supplier)) && (!terms || r.terms === terms)
+    return (rows || []).filter((r) => (show === 'all' ? true : show === 'archived' ? (r.xero_status === 'ARCHIVED' || !r.in_xero) : r.xero_status !== 'ARCHIVED' && r.in_xero && (show === 'customers' ? r.is_customer || !r.is_supplier : show === 'notes' ? (notes[r.id] || []).length : show === 'hold' ? r.on_hold : r.is_supplier)) && (!terms || r.terms === terms)
       && (!t || [r.name, r.email, r.phone, r.mobile, r.suburb, r.abn, r.account_number].join(' ').toLowerCase().includes(t)));
   }, [rows, q, show, terms, notes]);
   const last = status?.last_sync;
@@ -115,30 +115,31 @@ export default function AdminCustomers() {
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
         <div className="pp-filters">
           <input type="search" className="pp-search" value={q} onChange={(e) => { setQ(e.target.value); setN(100); }} placeholder="Search a name, email, phone, suburb or ABN…" aria-label="Search customers" />
-          <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="customers">Customers</option><option value="notes">With notes</option><option value="suppliers">Suppliers</option><option value="archived">Archived or gone from Xero</option><option value="all">Everyone</option></select>
+          <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="customers">Customers</option><option value="notes">With notes</option><option value="hold">On hold</option><option value="suppliers">Suppliers</option><option value="archived">Archived or gone from Xero</option><option value="all">Everyone</option></select>
           <select value={terms} onChange={(e) => { setTerms(e.target.value); setN(100); }} aria-label="Terms"><option value="">COD and account</option><option value="cod">COD</option><option value="account">Account</option></select>
           <span className="pp-count">{rows === null ? 'Loading…' : list.length + ' of ' + rows.length + ' contacts'}</span>
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table cu-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>Credit limit</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
             <tbody>
-              {rows !== null && !list.length && <tr><td colSpan="8" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
+              {rows !== null && !list.length && <tr><td colSpan="9" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((c) => {
                 const cn = notes[c.id] || [];
                 return (
                   <Fragment key={c.id}>
                     <tr className={'cu-row' + (open === c.id ? ' on' : '') + (c.in_xero && c.xero_status !== 'ARCHIVED' ? '' : ' pp-gone')}>
-                      <td><button type="button" className="cu-name" onClick={() => setOpen(open === c.id ? null : c.id)} aria-expanded={open === c.id}><span>{open === c.id ? '▾' : '▸'}</span><b>{c.name}</b></button>{c.xero_status === 'ARCHIVED' && <small className="pp-tag">Archived in Xero</small>}</td>
+                      <td><button type="button" className="cu-name" onClick={() => setOpen(open === c.id ? null : c.id)} aria-expanded={open === c.id}><span>{open === c.id ? '▾' : '▸'}</span><b>{c.name}</b></button>{c.on_hold && <small className="cu-holdtag">ON HOLD</small>}{c.xero_status === 'ARCHIVED' && <small className="pp-tag">Archived in Xero</small>}</td>
                       <td><small className="cu-c">{c.email}</small><small className="cu-c">{c.mobile || c.phone}</small></td>
                       <td>{c.suburb}</td>
                       <td><select className="pp-pick" value={c.terms} disabled={!canEdit} onChange={(e) => setField(c, { terms: e.target.value })} aria-label={'Terms of ' + c.name}><option value="cod">COD</option><option value="account">Account</option></select></td>
+                      <td><select className={'pp-pick cu-hold' + (c.on_hold ? ' on' : '')} value={c.on_hold ? 'yes' : 'no'} disabled={!canEdit} onChange={(e) => setField(c, { on_hold: e.target.value === 'yes' })} aria-label={'On hold: ' + c.name}><option value="no">No</option><option value="yes">Yes</option></select></td>
                       <td><Limit c={c} canEdit={canEdit} onSave={setField} /></td>
                       <td className="cu-terms">{termsText(c) || <span className="pp-muted">Xero's default</span>}</td>
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>
                     </tr>
-                    {open === c.id && <tr className="cu-open"><td colSpan="8"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
+                    {open === c.id && <tr className="cu-open"><td colSpan="9"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
                   </Fragment>
                 );
               })}

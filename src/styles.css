@@ -198,3 +198,5 @@ a.ad-row:hover{background:#FAFAF9}
 .cu-lim{display:inline-flex;align-items:center;border:1px solid #D6D3D1;border-radius:6px;background:#fff;height:32px;padding-left:8px}
 .cu-lim i{font-style:normal;color:var(--muted);font-size:13px}.cu-lim input{border:0;width:86px;height:30px;padding:0 8px 0 4px;font:inherit;font-size:13px;text-align:right;background:none}
 .cu-lim:focus-within{outline:2px solid var(--red)}.cu-lim input::placeholder{color:#B8B2AA}
+.cu-hold{width:76px}.cu-hold.on{background:#FEE2E2;border-color:#DC2626;color:#991B1B;font-weight:700}
+.cu-holdtag{display:inline-block!important;margin-left:22px;background:#DC2626;color:#fff!important;font-size:10px!important;font-weight:800;letter-spacing:.06em;border-radius:4px;padding:1px 6px}

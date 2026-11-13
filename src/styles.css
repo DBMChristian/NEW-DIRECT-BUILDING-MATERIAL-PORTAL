@@ -569,3 +569,50 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-cust{display:flex;align-items:center;gap:10px;height:40px;font-size:15px;letter-spacing:0;text-transform:none;color:var(--ink)}
 @media (max-width:1200px){.no-hd{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:700px){.no-hd{grid-template-columns:1fr}}
+
+/* New Order in the previous portal's skin (13 Nov 2026): a light panel with the grey bar (NEW ORDER, Price Book,
+   Continue DRAFT, Unfinished forms), plain labels, compact boxes, grey gradient buttons, pink chosen options */
+.no{padding:10px 12px 30px;gap:12px;font-size:13px}
+.no-card{border:1px solid #c9ced4;border-radius:6px;padding:10px 12px;gap:10px;box-shadow:none}
+.no-head{padding:0;overflow:visible}
+.no-bar{position:relative;display:flex;align-items:center;gap:12px;padding:8px 12px;background:linear-gradient(#f5f6f8,#dde1e6);border-bottom:1px solid #b9c0c8;border-radius:6px 6px 0 0}
+.no-bar h1{margin:0;font-size:15px;font-weight:800;letter-spacing:.02em}.no-bar h1 small{font-size:12px;font-weight:600;color:#57534E;margin-left:8px}
+.no-bar-r{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:13px;font-weight:600}
+.no-bar-r a{color:var(--ink);text-decoration:none}.no-bar-r a:hover{text-decoration:underline}
+.no-bar-r button{border:0;background:none;font:inherit;font-weight:600;color:var(--ink);cursor:pointer;padding:0;display:inline-flex;align-items:center;gap:6px}
+.no-bar-r button i{font-style:normal;background:#B91C1C;color:#fff;border-radius:999px;font-size:11px;font-weight:800;min-width:20px;height:20px;display:grid;place-items:center;padding:0 5px}
+.no-drafts{position:absolute;right:8px;top:100%;z-index:40;width:380px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #b9c0c8;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:6px}
+.no-dr{display:flex;align-items:center;gap:4px}.no-dr>button:first-child{flex:1;text-align:left;border:0;background:none;font:inherit;padding:7px 8px;border-radius:5px;cursor:pointer}
+.no-dr>button:first-child:hover{background:#FEF2F2}.no-dr small{display:block;color:#57534E;font-size:11.5px}
+.no-head .no-hd,.no-head>.no-chips,.no-head>.no-note,.no-head>.no-files,.no-head>.no-newc{margin:0 12px}
+.no-head .no-hd{padding-top:8px}.no-head>:last-child{margin-bottom:12px}
+.no-hd{gap:8px 14px}
+.no-f{font-size:12.5px;font-weight:400;letter-spacing:0;text-transform:none;color:#333;gap:3px}
+.no-f input,.no-f select,.no-search,.no-mob{height:30px;border:1px solid #b9c0c8;border-radius:3px;font-size:13px;padding:0 8px}
+.no-mob{padding:0}.no-mob b{height:28px;font-size:12px;padding:0 8px}.no-mob input{height:28px}
+.no-cust{height:30px;font-size:14px}
+.no-seg{height:30px;padding:0;background:none;border:0;gap:0}
+.no-seg button{border:1px solid #b9c0c8;background:linear-gradient(#fff,#eceef1);border-radius:0;font-weight:600;color:#333;padding:0 10px}
+.no-seg button:first-child{border-radius:3px 0 0 3px}.no-seg button:last-child{border-radius:0 3px 3px 0;border-left:0}
+.no-seg button.on{background:linear-gradient(#fde4e0,#f6c9c2);border-color:#c8483a;color:#7f1d1d;font-weight:800}
+.no-load .no-seg{width:190px;background:none}.no-qs .no-seg{width:120px}
+.no-card .btn,.no-two .btn,.no-plans{height:28px;border:1px solid #8D96A1;border-radius:3px;background:linear-gradient(#fff,#eceef1);font-size:12.5px;font-weight:600;color:var(--ink)}
+.no-card .btn-red,.no-side .btn-red{background:linear-gradient(#d23a3a,#b91c1c);border-color:#991b1b;color:#fff}
+.no-side .btn-big{height:40px;font-size:15px}
+.no-need .no-seg{outline:2px solid #c8483a;outline-offset:1px;border-radius:3px}
+.no-tabs{gap:0;border:1px solid #b9c0c8;border-radius:6px;overflow:hidden;background:linear-gradient(#fff,#eceef1)}
+.no-tab{border:0;border-right:1px solid #b9c0c8;border-radius:0;background:none;padding:8px 12px}.no-tab:last-child{border-right:0}
+.no-tab i{width:22px;height:22px;font-size:11.5px}
+.no-tab.on{background:linear-gradient(#fde4e0,#f6c9c2);box-shadow:inset 0 -3px 0 #c8483a}.no-tab.on i{background:#b91c1c;border-color:#b91c1c}
+.no-grp{border:1px solid #c9ced4;border-radius:5px}
+.no-gh{padding:6px 10px;font-size:12.5px}
+.no-load{padding:8px 10px;gap:8px}
+.no-t th{padding:6px 10px;background:linear-gradient(#f5f6f8,#e7eaee)}.no-t td{padding:6px 10px}
+.no-cat{height:26px;border-radius:3px;border-color:#b9c0c8;background:linear-gradient(#fff,#eceef1)}
+.no-cat.on{background:linear-gradient(#fde4e0,#f6c9c2);border-color:#c8483a}
+.no-ct{font-size:13.5px}
+.no-res{border-color:#c9ced4;border-radius:4px}
+.no-ri{padding:6px 10px}.no-ri .btn{height:26px}
+.no-chip{border-radius:3px}
+.no-note{border-radius:4px;padding:6px 10px}
+.no-side .no-card{gap:8px}

@@ -247,6 +247,34 @@ export default function NewOrder() {
     if (error) { setMsg({ bad: true, text: error.message }); return; }
     setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name });
   };
+  /* Unfinished forms: the drafts that have a company or a total; Continue DRAFT-n opens the last one (as before) */
+  const [drafts, setDrafts] = useState([]);
+  const [showDrafts, setShowDrafts] = useState(false);
+  const loadDrafts = async () => { const { data } = await supabase.from('orders').select('id, customer_name, total, updated_at, created_by_name').eq('status', 'draft').or('customer_name.neq.,total.gt.0').order('updated_at', { ascending: false }).limit(40); setDrafts(data || []); };
+  useEffect(() => { loadDrafts(); }, [saved]);
+  const lastDraft = drafts.find((d) => d.id !== o.id);
+  const openDraft = async (id) => {
+    setShowDrafts(false); setMsg(null);
+    const [od, ls, lds, lis, ps, pis] = await Promise.all([supabase.from('orders').select('*, customer:customers(*)').eq('id', id).single(), supabase.from('order_lines').select('*').eq('order_id', id).order('sort'),
+      supabase.from('order_loads').select('*').eq('order_id', id).order('sort'), supabase.from('order_load_items').select('*, order_loads!inner(order_id)').eq('order_loads.order_id', id),
+      supabase.from('order_pos').select('*').eq('order_id', id).order('sort'), supabase.from('order_po_items').select('*, order_pos!inner(order_id)').eq('order_pos.order_id', id)]);
+    if (od.error) { setMsg({ bad: true, text: od.error.message }); return; }
+    const d = od.data, prod = (ls.data || []).filter((l) => !l.is_charge), k = {};
+    const L2 = prod.map((l) => { const kk = key(); k[l.id] = kk; const p = products.find((x) => x.id === l.product_id);
+      return { key: kk, product_id: l.product_id, code: l.code, name: l.name, unit: l.unit, category: p?.category || 'Others', qty: Number(l.qty), price: Number(l.price), list: Number(l.list_price ?? l.price), reason: l.price_reason || '' }; });
+    const site = String(d.site_street || '') + (d.site_suburb ? ', ' + d.site_suburb : '');
+    setO({ id: d.id, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: String(d.contact_phone || '').replace(/^\+61 ?/, ''), mobile: /^\+61/.test(d.contact_phone || '') || !d.contact_phone,
+      email: d.email, their_po: d.their_po, instructions: d.instructions, site_street: d.site_street, site_suburb: d.site_suburb, delivery_date: d.delivery_date || '', booking_time: d.booking_time || '', sms: d.sms_confirm, plans: d.plans || [] });
+    setLines(L2);
+    setLoadsHand((lds.data || []).map((L, i) => ({ uid: key(), n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
+      items: Object.fromEntries((lis.data || []).filter((x) => x.load_id === L.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
+    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, deliverTo: P.deliver_to, notes: P.notes,
+      items: Object.fromEntries((pis.data || []).filter((x) => x.po_id === P.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
+    setOver({}); setLoadInfo({}); setTab('so');
+    if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
+    setMsg({ text: 'DRAFT-' + d.id + ' opened.' });
+  };
+  const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
   const restart = () => { setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
 
   if (done) return (
@@ -271,10 +299,20 @@ export default function NewOrder() {
 
   return (
     <>
-      <PageHeader title="NEW ORDER" sub={saved ? 'Draft saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : 'Fills in as you go; saved as a draft'} />
+
       <div className="no">
         <div className="no-main">
-          <section className="no-card" aria-label="Customer">
+          <section className="no-card no-head" aria-label="Customer">
+            <div className="no-bar"><h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>
+              <span className="no-bar-r">
+                {staff.role === 'admin' && <a href="/admin/products" target="_blank" rel="noreferrer">Price Book</a>}
+                {lastDraft && <button type="button" onClick={() => openDraft(lastDraft.id)}>↻ Continue DRAFT-{lastDraft.id}</button>}
+                {o.id && <button type="button" aria-label="New blank form" title="New blank form" onClick={() => restart()}>×</button>}
+                <button type="button" onClick={() => setShowDrafts(!showDrafts)} aria-expanded={showDrafts}>Unfinished forms <i>{drafts.length}</i></button>
+              </span>
+              {showDrafts && <div className="no-drafts">{!drafts.length ? <p className="no-sub">No unfinished forms.</p> : drafts.map((d) => (
+                <div key={d.id} className="no-dr"><button type="button" onClick={() => openDraft(d.id)}><b>DRAFT-{d.id}</b> {d.customer_name || 'No company yet'}<small>{cash(d.total)} · {d.created_by_name} · {new Date(d.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></button><button type="button" className="no-x" aria-label={'Delete DRAFT-' + d.id} onClick={() => dropDraft(d.id)}>×</button></div>))}</div>}
+            </div>
             <div className="no-hd">
               <div className="no-f no-c1">Company <span className="req">*</span>
                 {!o.customer ? <div className="no-cwrap"><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" aria-label="Company" autoFocus />

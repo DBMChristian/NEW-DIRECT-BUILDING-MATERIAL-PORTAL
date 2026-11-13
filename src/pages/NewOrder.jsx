@@ -183,7 +183,15 @@ export default function NewOrder() {
     setLine(l.key, { cut, qty: q });
     if (loadsHand) setLoadsHand((Ls) => { const has = Ls.filter((L) => L.items[l.key] != null); if (has.length !== 1) return Ls; return Ls.map((L) => (L === has[0] ? { ...L, items: { ...L.items, [l.key]: q } } : L)); }); };
   const setEps = (l, ch) => setLine(l.key, { eps: { ...(l.eps || {}), ...ch } });
-  const setLine = (k, ch) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...ch } : l)));
+  /* a quantity changed in Build SO follows onto its load and its PO when it is on just one of each (arranged loads and
+     POs, e.g. a reopened draft); split over several, the form asks for it to be shared out (13 Nov 2026) */
+  const setLine = (k, ch) => {
+    setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...ch } : l)));
+    if (ch.qty == null) return;
+    const q = Number(ch.qty) || 0;
+    setLoadsHand((Ls) => { if (!Ls) return Ls; const has = Ls.filter((L) => Number(L.items[k] || 0) > 0 || L.items[k] === 0); if (has.length !== 1) return Ls; return Ls.map((L) => (L === has[0] ? { ...L, items: { ...L.items, [k]: q } } : L)); });
+    setPosHand((Ps) => { if (!Ps) return Ps; const has = Ps.filter((P) => P.items[k] != null && Number(P.items[k]) > 0); if (has.length !== 1) return Ps; return Ps.map((P) => (P === has[0] ? { ...P, items: { ...P.items, [k]: q } } : P)); });
+  };
   const removeLine = (k) => setLines((ls) => ls.filter((x) => x.key !== k));
 
   /* ---------- the charges: per load (delivery, waffle pods, concrete) and the impact charge once ---------- */

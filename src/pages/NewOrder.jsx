@@ -115,7 +115,9 @@ export default function NewOrder() {
       const { data } = await supabase.from('customers').select('*').or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},mobile.ilike.${like}`).neq('xero_status', 'ARCHIVED').order('name').limit(10); setCHits(data || []); }, 200);
     return () => clearTimeout(h); }, [cq, o.customer]);
   const pickCustomer = async (c) => {
-    setO((x) => ({ ...x, customer: c, terms: c.terms || 'cod', price_list: c.price_list || 'builder', contact_name: x.contact_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.name, contact_phone: x.contact_phone || c.mobile || c.phone, mobile: x.contact_phone ? x.mobile : /^(\+?61|0)?\s*4/.test(String(c.mobile || c.phone || '').replace(/[^0-9+]/g, '')) || !(c.mobile || c.phone), email: x.email || c.email }));
+    /* their name starts blank; the email and phone come from the customer (both can be changed) */
+    const ph = c.mobile || c.phone || '', mob = !ph || /^(\+?61|0)?4/.test(String(ph).replace(/[^0-9+]/g, ''));
+    setO((x) => ({ ...x, customer: c, terms: c.terms || 'cod', price_list: c.price_list || 'builder', email: c.email || '', contact_phone: ph, mobile: mob, sms: mob ? x.sms : false }));
     setCq(''); setCHits([]);
     const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', c.id).order('created_at', { ascending: false }); setNotes(data || []);
     setLines((ls) => ls.map((l) => { const p = products.find((x) => x.id === l.product_id); const np = priceFor(p, c.price_list); return { ...l, list: np, price: l.price === l.list ? np : l.price }; }));
@@ -186,7 +188,7 @@ export default function NewOrder() {
     if (!o.site_street.trim() || !o.site_suburb.trim()) return 'Enter the site address (street, then suburb and postcode).';
     if (o.kind === 'order' && !o.delivery_date) return 'Choose the delivery date.';
     if (o.kind === 'order' && !o.booking_time) return 'Select a booking time.';
-    if (o.sms === null) return 'SMS booking confirmation: Yes or No.';
+    if (o.mobile && o.sms === null) return 'SMS booking confirmation: Yes or No.';
     if (!lines.length) return 'Add at least one product.';
     const bad = lines.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || allCharges.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
     if (bad) return 'Build SO: give the reason for the changed price of ' + bad.name + '.';
@@ -205,7 +207,7 @@ export default function NewOrder() {
     if (!o.customer && !lines.length) return o.id;
     if (busyRef.current) return o.id; busyRef.current = true;
     try {
-      const head = { kind: o.kind, customer_id: o.customer?.id || null, customer_name: o.customer?.name || '', terms: o.terms || 'cod', price_list: o.price_list || 'builder', site_street: o.site_street, site_suburb: o.site_suburb, delivery_date: o.delivery_date || null, booking_time: o.booking_time, sms_confirm: o.sms, plans: o.plans,
+      const head = { kind: o.kind, customer_id: o.customer?.id || null, customer_name: o.customer?.name || '', terms: o.terms || 'cod', price_list: o.price_list || 'builder', site_street: o.site_street, site_suburb: o.site_suburb, delivery_date: o.delivery_date || null, booking_time: o.booking_time, sms_confirm: o.mobile ? o.sms : false, plans: o.plans,
         contact_name: o.contact_name, contact_phone: phoneOut(o), email: o.email, their_po: o.their_po, instructions: o.instructions, subtotal: sub, gst, total, updated_at: new Date().toISOString() };
       let id = o.id;
       if (!id) { const r = await supabase.from('orders').insert({ ...head, created_by: staff.email, created_by_name: staff.name || staff.email.split('@')[0] }).select('id').single(); if (r.error) throw r.error; id = r.data.id; setO((x) => ({ ...x, id })); }
@@ -288,7 +290,7 @@ export default function NewOrder() {
                 <label className="btn no-plans">{uploading ? 'Uploading…' : 'Plans or drawings' + (o.plans.length ? ' (' + o.plans.length + ')' : '')}<input type="file" multiple accept=".pdf,image/*,.dwg,.dxf" onChange={(e) => uploadPlans(e.target.files)} hidden /></label></div>
 
               <label className="no-f">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} placeholder="Who is this order for?" /></label>
-              <div className="no-f">Their phone <span className="req">*</span><button type="button" className="link no-notmob" onClick={() => setO({ ...o, mobile: !o.mobile, contact_phone: '' })}>{o.mobile ? 'Not a mobile?' : 'A mobile?'}</button>
+              <div className="no-f">Their phone <span className="req">*</span><button type="button" className="link no-notmob" onClick={() => setO({ ...o, mobile: !o.mobile, contact_phone: '', sms: o.mobile ? false : null })}>{o.mobile ? 'Not a mobile?' : 'A mobile?'}</button>
                 {o.mobile ? <span className="no-mob"><b>AU +61</b><input value={fmtMob(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" placeholder="4xx xxx xxx" aria-label="Their mobile" /></span>
                   : <input value={o.contact_phone} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" placeholder="02 xxxx xxxx" aria-label="Their phone" />}</div>
               <div className="no-f">Site address <span className="req">*</span><span className="no-two"><input value={o.site_street} onChange={(e) => setO({ ...o, site_street: e.target.value })} placeholder="14 Banks Rd" aria-label="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
@@ -297,7 +299,7 @@ export default function NewOrder() {
 
               <label className="no-f">Delivery date {o.kind === 'order' && <span className="req">*</span>}<input type="date" value={o.delivery_date} onChange={(e) => setO({ ...o, delivery_date: e.target.value })} /></label>
               <label className="no-f">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
-              <div className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>
+              {o.mobile && <div className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>}
             </div>
             {o.customer && <div className="no-chips">
               <span className="no-chip" style={{ background: '#FEF3C7', color: '#92400E' }}>{o.customer.terms === 'account' ? 'Account customer' : 'COD customer'}</span>

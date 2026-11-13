@@ -60,7 +60,7 @@ function Tabs({ value, set, counts }) {
 export default function Home() {
   const { staff } = useAuth();
   const [day, setDay] = useState(startOf(new Date()));
-  const [range, setRange] = useState('day');   /* day | week */
+  const range = 'day';   /* always one day: today, unless the arrows or the calendar move it (13 Nov 2026) */
   const [ptab, setPtab] = useState('all');
   const [dtab, setDtab] = useState('all');
   const [q, setQ] = useState('');
@@ -102,9 +102,7 @@ export default function Home() {
   const take = async (e) => { const { error } = await supabase.from('enquiries').update({ status: e.status === 'new' ? 'working' : e.status, taken_by: staff.email, taken_by_name: staff.name || staff.email.split('@')[0], updated_at: new Date().toISOString() }).eq('id', e.id); if (!error) load(); };
   const shift = (n) => { const d = new Date(day); d.setDate(d.getDate() + n * (range === 'week' ? 7 : 1)); setDay(d); };
   const today = startOf(new Date()), tomorrow = new Date(today.getTime() + 86400000);
-  const isDay = (d) => range === 'day' && day.getTime() === d.getTime();
-  const weekEnd = new Date(day.getTime() + 6 * 86400000);
-  const dayLabel = range === 'week' ? dayName(day) + ' – ' + dayName(weekEnd) : dayName(day);
+  const dayLabel = day.getTime() === today.getTime() ? 'Today' : dayName(day);
   const hl = (s) => { const t = q.trim(); if (!t) return s; const i = String(s || '').toLowerCase().indexOf(t.toLowerCase()); if (i < 0) return s; return <>{s.slice(0, i)}<mark>{s.slice(i, i + t.length)}</mark>{s.slice(i + t.length)}</>; };
   const found = hits ? hits.customers.length + hits.enquiries.length + hits.orders.length + hits.invoices.length : 0;
 
@@ -121,13 +119,8 @@ export default function Home() {
           </label>
           <div className="hm-date">
             <button type="button" aria-label={range === 'week' ? 'Week before' : 'Day before'} onClick={() => shift(-1)}>‹</button>
-            <label className="hm-dpick"><span>{dayLabel}</span><input type="date" value={ymd(day)} onChange={(e) => e.target.value && setDay(startOf(new Date(e.target.value + 'T00:00:00')))} aria-label="Choose a day" /></label>
+            <label className="hm-dpick"><span>{dayName(day)}</span><input type="date" value={ymd(day)} onChange={(e) => e.target.value && setDay(startOf(new Date(e.target.value + 'T00:00:00')))} aria-label="Choose a day" /></label>
             <button type="button" aria-label={range === 'week' ? 'Week after' : 'Day after'} onClick={() => shift(1)}>›</button>
-          </div>
-          <div className="hm-quick">
-            <button type="button" className={'hm-btn hm-big' + (isDay(today) ? ' on' : '')} onClick={() => { setRange('day'); setDay(today); }}>Today</button>
-            <button type="button" className={'hm-btn hm-big' + (isDay(tomorrow) ? ' on' : '')} onClick={() => { setRange('day'); setDay(tomorrow); }}>Tomorrow</button>
-            <button type="button" className={'hm-btn hm-big' + (range === 'week' ? ' on' : '')} onClick={() => { setRange('week'); setDay(today); }}>This week</button>
           </div>
         </div>
 
@@ -149,7 +142,7 @@ export default function Home() {
               <div className="hm-sec"><span className="hm-dot" style={{ background: '#EA580C' }} />ON HOLD 0</div>
               <div className="hm-list"><div className="hm-empty hm-small">No order on hold.</div></div>
             </Col>
-            <Col dot="#16A34A" title={dayLabel} sub={range === 'week' ? 'Booked this week' : 'Booked for this day'} n={0} nColor="#16A34A" label="The chosen day">
+            <Col dot="#16A34A" title={dayLabel} sub={day.getTime() === today.getTime() ? dayName(day) + ' · booked for today' : 'Booked for this day'} n={0} nColor="#16A34A" label="The chosen day">
               <Tabs value={dtab} set={setDtab} counts={{ all: 0, delivery: 0, pickup: 0 }} />
               <div className="hm-list"><div className="hm-empty">No booked orders {range === 'week' ? 'this week' : 'on ' + dayName(day)}.</div></div>
             </Col>

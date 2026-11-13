@@ -289,11 +289,22 @@ export default function NewOrder() {
   };
   const removeLine = (k) => setLines((ls) => ls.filter((x) => x.key !== k));
 
+  /* the answers a load works with (13 Nov 2026): its material's answers given on Build PO (from any load carrying that
+     material), then its own; so a new load of waffle pods has its location, and its delivery is the same line */
+  const QKEYS = { Wafflepods: ['location', 'hours', 'scrap', 'trailer', 'gate'], Concrete: ['pour', 'truck', 'spacing', 'message', 'tester', 'coloured', 'colour'] };
+  const effAns = (L) => {
+    const cats = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), base = {};
+    for (const c of cats) for (const f of QKEYS[c] || []) for (const M of loads) { const v = (M.answers || {})[f];
+      if (v != null && String(v).trim() !== '' && lines.some((l) => l.category === c && qtyIn(M.items, l.key) > 0)) { base[f] = v; break; } }
+    const own = Object.fromEntries(Object.entries(L.answers || {}).filter(([, v]) => v != null && String(v).trim() !== ''));
+    return { ...base, ...own };
+  };
   /* ---------- the charges: per load (delivery, waffle pods, concrete) and the impact charge once ---------- */
   const loadCharges = useMemo(() => loads.map((L) => {
     const inLoad = lines.map((l) => ({ ...l, qty: qtyIn(L.items, l.key) })).filter((l) => l.qty > 0);
     const cats = [...new Set(inLoad.map((l) => l.category))];
-    const ch = cats.flatMap((c) => chargesFor(c, inLoad, L, ctx).map((x) => ({ ...x, cat: c, key: c + ':' + x.key })))
+    const LA = { ...L, answers: effAns(L) };
+    const ch = cats.flatMap((c) => chargesFor(c, inLoad, LA, ctx).map((x) => ({ ...x, cat: c, key: c + ':' + x.key })))
       /* a charge goes on only when its product is in the list (Admin › Products, active): Reinforcement's delivery is
          FR-CRANE/REO; its name is the product's (13 Nov 2026) */
       .map((x) => (x.code === 'DELIVERY' ? { ...x, code: 'FR-CRANE/REO', delivery: true } : x))   /* every material's delivery is FR-CRANE/REO (waffle pods WPDEL; concrete none) */
@@ -334,7 +345,7 @@ export default function NewOrder() {
     for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) return 'Build Load: load ' + L.n + ' is empty: remove it.';
       if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
       if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
-    for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = L.answers || {}, no = (f) => a[f] == null || String(a[f]).trim() === '';
+    for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = effAns(L), no = (f) => a[f] == null || String(a[f]).trim() === '';
       if (cs.has('Wafflepods') && L.fulfil === 'delivery') {
         if (no('location')) return 'Build PO: waffle pods, choose the location.';
         if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Build PO: waffle pods, enter the driving time.';
@@ -372,7 +383,7 @@ export default function NewOrder() {
       const chId = {};
       if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }).select('id').single(); if (r.error) throw r.error; chId['|impc'] = r.data.id; }
       for (const [i, x] of loadCharges.entries()) { const L = x.L;
-        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: L.answers || {}, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
+        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: effAns(L), status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
         if (ld.error) throw ld.error;
         const its = x.inLoad.map((l) => ({ load_id: ld.data.id, line_id: lineId[l.key], qty: l.qty }));
         if (its.length) { const r = await supabase.from('order_load_items').insert(its); if (r.error) throw r.error; }
@@ -484,7 +495,7 @@ export default function NewOrder() {
         {yn('tester', 'Tester')}{yn('coloured', 'Coloured')}{a.coloured === 'yes' && text('colour', 'Colour', 'e.g. Charcoal')}
       </div>);
   };
-  const catAnswers = (c) => (loads.find((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)) || {}).answers || {};
+  const catAnswers = (c) => { const L = loads.find((M) => lines.some((l) => l.category === c && qtyIn(M.items, l.key) > 0)); return L ? effAns(L) : {}; };
   const setCatAns = (c, ch) => loads.filter((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)).forEach((L) => setAns(L.uid, ch));
   const catDelivery = (c) => loads.some((L) => L.fulfil === 'delivery' && lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0));
   /* who delivers a load (13 Nov 2026): when a further delivery appears for a material (a second load, or a pick-up turned

@@ -205,6 +205,11 @@ export default function NewOrder() {
     for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) return 'Build Load: load ' + L.n + ' is empty: remove it.';
       if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
       if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
+    for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = L.answers || {};
+      if (cs.has('Wafflepods') && L.fulfil === 'delivery' && !a.location) return 'Waffle pods: choose the location (Build SO).';
+      if (cs.has('Wafflepods') && L.fulfil === 'delivery' && (a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Waffle pods: enter the driving time.';
+      if (cs.has('Wafflepods') && L.fulfil === 'delivery' && !String(a.gate || '').trim()) return 'Waffle pods: enter the gate code (or N/A).';
+      if (cs.has('Concrete') && a.coloured === 'yes' && !String(a.colour || '').trim()) return 'Concrete: enter the colour.'; }
     const note = allCharges.find((x) => !x.off && x.note); if (note) return 'Build Load: ' + note.note + '.';
     for (const P of pos) if (!P.supplier_id) return 'Build PO: choose the supplier of each PO.';
     return '';
@@ -228,7 +233,7 @@ export default function NewOrder() {
       const lineId = Object.fromEntries(lines.map((l, i) => [l.key, pl.data[i].id]));
       if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }); if (r.error) throw r.error; }
       for (const [i, x] of loadCharges.entries()) { const L = x.L;
-        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: L.answers || {}, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
+        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: { ...(x.cats.includes('Concrete') ? { pour: 'Pump', truck: 'Any Truck Size', spacing: '15min', message: 'Neat', tester: 'no', coloured: 'no' } : {}), ...(x.cats.includes('Wafflepods') ? { scrap: 'no', trailer: 'yes' } : {}), ...(L.answers || {}) }, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
         if (ld.error) throw ld.error;
         const its = x.inLoad.map((l) => ({ load_id: ld.data.id, line_id: lineId[l.key], qty: l.qty }));
         if (its.length) { const r = await supabase.from('order_load_items').insert(its); if (r.error) throw r.error; }
@@ -294,6 +299,29 @@ export default function NewOrder() {
     </>
   );
 
+  /* the waffle pod and concrete questions (as the previous form asks them), in Build SO for the material and in Build
+     Load for each load; asked once in Build SO they go on every load carrying that material */
+  const questions = (cat, a, set) => (cat === 'Wafflepods'
+    ? <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
+                  <label className="no-f">Location <span className="req">*</span><select value={a.location || ''} onChange={(e) => set({ location: e.target.value })}><option value="">Choose…</option>{WP_LOCATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                  {(a.location === 'NSW' || a.location === 'ACT') && <label className="no-f">Driving time (hours, one way)<input inputMode="decimal" value={a.hours || ''} onChange={(e) => set({ hours: e.target.value })} /></label>}
+                  <label className="no-f">Scrap pick-up<Seg value={a.scrap || 'no'} set={(v) => set({ scrap: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  <label className="no-f">Trailer access<Seg value={a.trailer || 'yes'} set={(v) => set({ trailer: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  <label className="no-f">Gate code<input value={a.gate || ''} onChange={(e) => set({ gate: e.target.value })} placeholder="Code, or N/A" /></label>
+                </div>
+    : <div className="no-load no-qs"><b className="no-qt">Concrete</b>
+                  <label className="no-f">Plant<select value={a.plant || ''} onChange={(e) => set({ plant: e.target.value })}>{PLANTS.map((p) => <option key={p} value={p}>{p || 'DBM chooses'}</option>)}</select></label>
+                  <label className="no-f">Pour<select value={a.pour || 'Pump'} onChange={(e) => set({ pour: e.target.value })}>{['Pump', 'Line', 'Chute', 'Boom'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Truck<select value={a.truck || 'Any Truck Size'} onChange={(e) => set({ truck: e.target.value })}>{['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Spacing<select value={a.spacing || '15min'} onChange={(e) => set({ spacing: e.target.value })}>{['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Finish<select value={a.message || 'Neat'} onChange={(e) => set({ message: e.target.value })}>{['Message', 'Neat', 'Neat Plus'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Tester<Seg value={a.tester || 'no'} set={(v) => set({ tester: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  <label className="no-f">Coloured<Seg value={a.coloured || 'no'} set={(v) => set({ coloured: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  {a.coloured === 'yes' && <><label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => set({ colour: e.target.value })} /></label><label className="no-f">Max m³ in colour<input inputMode="decimal" value={a.maxColour || ''} onChange={(e) => set({ maxColour: e.target.value })} /></label></>}
+                </div>);
+  const catAnswers = (c) => (loads.find((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)) || {}).answers || {};
+  const setCatAns = (c, ch) => loads.filter((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)).forEach((L) => setAns(L.uid, ch));
+  const catDelivery = (c) => loads.some((L) => L.fulfil === 'delivery' && lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0));
   /* a function, not a component: the price box keeps its focus while typing */
   const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
     <tr key={x.load + x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
@@ -393,6 +421,8 @@ export default function NewOrder() {
             {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
               <div key={c} className="no-grp">
                 <div className="no-gh" style={{ background: HEAD[c] }}>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small></div>
+                {c === 'Wafflepods' && catDelivery(c) && questions('Wafflepods', catAnswers(c), (ch) => setCatAns(c, ch))}
+                {c === 'Concrete' && questions('Concrete', catAnswers(c), (ch) => setCatAns(c, ch))}
                 <div className="no-tw"><table className="no-t">
                   <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th /></tr></thead>
                   <tbody>
@@ -451,23 +481,8 @@ export default function NewOrder() {
                   <label className="no-f">{L.fulfil === 'delivery' ? 'Delivery date' : 'Pick-up date'}{o.kind === 'order' && <span className="req"> *</span>}<input type="date" value={L.date || ''} onChange={(e) => setLoad(L.uid, { date: e.target.value })} /></label>
                   <label className="no-f">Time<select value={L.time || 'Any time'} onChange={(e) => setLoad(L.uid, { time: e.target.value })}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
                 </div>
-                {cats.includes('Wafflepods') && L.fulfil === 'delivery' && <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
-                  <label className="no-f">Location <span className="req">*</span><select value={a.location || ''} onChange={(e) => setAns(L.uid, { location: e.target.value })}><option value="">Choose…</option>{WP_LOCATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-                  {(a.location === 'NSW' || a.location === 'ACT') && <label className="no-f">Driving time (hours, one way)<input inputMode="decimal" value={a.hours || ''} onChange={(e) => setAns(L.uid, { hours: e.target.value })} /></label>}
-                  <label className="no-f">Scrap pick-up<Seg value={a.scrap || 'no'} set={(v) => setAns(L.uid, { scrap: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Trailer access<Seg value={a.trailer || 'yes'} set={(v) => setAns(L.uid, { trailer: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Gate code<input value={a.gate || ''} onChange={(e) => setAns(L.uid, { gate: e.target.value })} placeholder="Code, or N/A" /></label>
-                </div>}
-                {cats.includes('Concrete') && <div className="no-load no-qs"><b className="no-qt">Concrete</b>
-                  <label className="no-f">Plant<select value={a.plant || ''} onChange={(e) => setAns(L.uid, { plant: e.target.value })}>{PLANTS.map((p) => <option key={p} value={p}>{p || 'DBM chooses'}</option>)}</select></label>
-                  <label className="no-f">Pour<select value={a.pour || 'Pump'} onChange={(e) => setAns(L.uid, { pour: e.target.value })}>{['Pump', 'Line', 'Chute', 'Boom'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Truck<select value={a.truck || 'Any Truck Size'} onChange={(e) => setAns(L.uid, { truck: e.target.value })}>{['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Spacing<select value={a.spacing || '15min'} onChange={(e) => setAns(L.uid, { spacing: e.target.value })}>{['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Finish<select value={a.message || 'Neat'} onChange={(e) => setAns(L.uid, { message: e.target.value })}>{['Message', 'Neat', 'Neat Plus'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Tester<Seg value={a.tester || 'no'} set={(v) => setAns(L.uid, { tester: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Coloured<Seg value={a.coloured || 'no'} set={(v) => setAns(L.uid, { coloured: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  {a.coloured === 'yes' && <><label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => setAns(L.uid, { colour: e.target.value })} /></label><label className="no-f">Max m³ in colour<input inputMode="decimal" value={a.maxColour || ''} onChange={(e) => setAns(L.uid, { maxColour: e.target.value })} /></label></>}
-                </div>}
+                {cats.includes('Wafflepods') && L.fulfil === 'delivery' && questions('Wafflepods', a, (ch) => setAns(L.uid, ch))}
+                {cats.includes('Concrete') && questions('Concrete', a, (ch) => setAns(L.uid, ch))}
                 <div className="no-tw"><table className="no-t"><thead><tr><th>On this load</th><th>Sold</th><th>On it</th><th>Move to</th></tr></thead><tbody>
                   {lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => (
                     <tr key={l.key}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>

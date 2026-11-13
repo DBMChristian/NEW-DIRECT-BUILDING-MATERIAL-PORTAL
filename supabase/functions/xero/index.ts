@@ -16,7 +16,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 const env = (k: string) => (Deno.env.get(k) ?? "").trim();
-const SCOPES = "openid profile email offline_access accounting.settings.read accounting.contacts.read";   /* contacts: Admin > Customers (13 Nov 2026) */
+/* contacts: Admin > Customers; invoices (read): each customer's balances (13 Nov 2026). Xero apps made since March 2026
+   use the narrower "accounting.invoices.read"; XERO_SCOPES (a secret) overrides the list if Xero asks for another. */
+const SCOPES = env("XERO_SCOPES") || "openid profile email offline_access accounting.settings.read accounting.contacts.read accounting.invoices.read";
 const admin = () => createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false }, db: { schema: "public" } });
 const priv = admin;   /* the Xero tables are in public, readable only with the service role (RLS, no policies) */
 
@@ -67,8 +69,15 @@ Deno.serve(async (req) => {
       catch (e) { return back(false, e instanceof Error ? e.message : String(e)); }
       const cr = await fetch("https://api.xero.com/connections", { headers: { Authorization: "Bearer " + t.access_token, "Content-Type": "application/json" } });
       const conns = await cr.json().catch(() => []);
-      const org = (Array.isArray(conns) ? conns : []).find((c: any) => c.tenantType === "ORGANISATION");
-      if (!org) return back(false, "No Xero organisation was chosen");
+      /* Xero lists every organisation ever connected to this app (13 Nov 2026: DBM's was connected by mistake): the portal
+         always uses Direct Building Material's when it is among them, never another */
+      let ev = "";
+      try { ev = JSON.parse(atob(t.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).authentication_event_id || ""; } catch { /* none */ }
+      const orgs = (Array.isArray(conns) ? conns : []).filter((c: any) => c.tenantType === "ORGANISATION");
+      /* Direct's own organisation wins whenever it is connected; else the one chosen in this sign-in, if only one was */
+      const chosen = orgs.filter((c: any) => ev && c.authEventId === ev);
+      const org = orgs.find((c: any) => /^direct building material/i.test(String(c.tenantName || ""))) || (chosen.length === 1 ? chosen[0] : orgs.length === 1 ? orgs[0] : null);
+      if (!org) return back(false, "Choose Direct Building Material in Xero (connected now: " + orgs.map((c: any) => c.tenantName).join(", ") + ").");
       await priv().from("xero_link").upsert({ id: 1, tenant_id: org.tenantId, tenant_name: org.tenantName, access_token: t.access_token, refresh_token: t.refresh_token,
         expires_at: new Date(Date.now() + t.expires_in * 1000).toISOString(), connected_by: st.by_email, connected_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       return back(true, "Connected to " + org.tenantName);
@@ -87,14 +96,53 @@ Deno.serve(async (req) => {
     const action = String(body?.action || "");
 
     if (action === "status") {
-      const { data: l } = await priv().from("xero_link").select("tenant_name, connected_by, connected_at, refresh_token").eq("id", 1).maybeSingle();
+      const { data: l } = await priv().from("xero_link").select("tenant_name, connected_by, connected_at, refresh_token, default_terms_day, default_terms_type").eq("id", 1).maybeSingle();
       const kind = body?.kind === "contacts" ? "contacts" : "items";
       const { data: last } = await admin().from("xero_sync_runs").select("*").eq("kind", kind).order("id", { ascending: false }).limit(1).maybeSingle();
-      return json({ connected: !!l?.refresh_token, tenant: l?.tenant_name || null, connected_by: l?.connected_by || null, connected_at: l?.connected_at || null, last_sync: last || null, setup: !!(env("XERO_CLIENT_ID") && env("XERO_CLIENT_SECRET") && env("XERO_REDIRECT_URI")) });
+      return json({ connected: !!l?.refresh_token, tenant: l?.tenant_name || null, default_terms: l?.default_terms_type ? { day: l.default_terms_day, type: l.default_terms_type } : null, connected_by: l?.connected_by || null, connected_at: l?.connected_at || null, last_sync: last || null, setup: !!(env("XERO_CLIENT_ID") && env("XERO_CLIENT_SECRET") && env("XERO_REDIRECT_URI")) });
     }
+    /* + New customer in New Order (13 Nov 2026): the contact is made in Xero straight away (name, email, phone), and the
+       portal's customer is that contact (linked by its Xero id), so a sync never brings it back as a second customer.
+       A contact of the same name already in Xero is used, not doubled. Office and admin. */
+    if (action === "create_contact") {
+      if (who.role !== "admin" && who.role !== "office") return json({ error: "Only the office can add customers" }, 403);
+      const name = String(body?.name || "").trim().slice(0, 255), email = String(body?.email || "").trim().toLowerCase().slice(0, 255), phone = String(body?.phone || "").trim().slice(0, 50);
+      if (name.length < 2) return json({ error: "Enter the company or name" }, 400);
+      try {
+        const l = await access();
+        const h = { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json", "Content-Type": "application/json" };
+        /* the same name already in Xero: use it */
+        const f = await fetch("https://api.xero.com/api.xro/2.0/Contacts?where=" + encodeURIComponent('Name=="' + name.replace(/"/g, '') + '"'), { headers: h });
+        const fj = await f.json().catch(() => ({}));
+        let c = (fj?.Contacts || [])[0], existed = !!c;
+        if (!c) {
+          const mob = /^(\+?61|0)?4/.test(phone.replace(/[^0-9+]/g, ""));
+          const doc: Record<string, unknown> = { Name: name, ...(email ? { EmailAddress: email } : {}), IsCustomer: true,
+            ...(phone ? { Phones: [{ PhoneType: mob ? "MOBILE" : "DEFAULT", PhoneNumber: phone }] } : {}) };
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Contacts", { method: "PUT", headers: h, body: JSON.stringify({ Contacts: [doc] }) });
+          const j = await r.json().catch(() => ({}));
+          const ve = ((j?.Elements || [])[0]?.ValidationErrors || []).map((v: any) => v.Message).join("; ");
+          if (!r.ok || ve) throw new Error("Xero: " + (ve || j?.Detail || j?.Message || j?.Title || r.status));
+          c = (j?.Contacts || [])[0];
+        }
+        if (!c?.ContactID) throw new Error("Xero gave no contact back");
+        const row = { xero_contact_id: c.ContactID, name: c.Name || name, email: (c.EmailAddress || email || "").toLowerCase(), is_customer: true, in_xero: true, xero_status: c.ContactStatus || "ACTIVE", synced_at: new Date().toISOString(),
+          ...(phone ? (/^(\+?61|0)?4/.test(phone.replace(/[^0-9+]/g, "")) ? { mobile: phone } : { phone }) : {}) };
+        const { data: have } = await admin().from("customers").select("id").eq("xero_contact_id", c.ContactID).maybeSingle();
+        const saved = have ? await admin().from("customers").update(row).eq("id", have.id).select("*").single()
+          : await admin().from("customers").insert({ ...row, terms: "cod", price_list: "builder" }).select("*").single();
+        if (saved.error) throw new Error(saved.error.message);
+        return json({ ok: true, existed, customer: saved.data });
+      } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 502); }
+    }
+    /* Sync (Xero) on New Order: the office may pull the customers too */
+    if (action === "sync_contacts" && who.role === "office") { const r = await syncContacts(); return json(r, (r as any).error ? 502 : 200); }
     if (who.role !== "admin") return json({ error: "Only an admin can do that" }, 403);
 
     if (action === "connect") {
+      /* only these people connect or reconnect Xero (XERO_OWNERS, a secret, comma separated; default Christian) */
+      const owners = (env("XERO_OWNERS") || "christian@discountbuildingmaterial.com.au").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+      if (!owners.includes(who!.email)) return json({ error: "Only " + owners.join(", ") + " can connect Xero." }, 403);
       if (!env("XERO_CLIENT_ID") || !env("XERO_REDIRECT_URI")) return json({ error: "The Xero app is not set up yet (XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI)." }, 409);
       const returnTo = /^https?:\/\//.test(String(body?.return_to || "")) ? String(body.return_to) : "";
       if (!returnTo) return json({ error: "Send return_to" }, 400);
@@ -160,6 +208,11 @@ Deno.serve(async (req) => {
           all.push(...got);
           if (got.length < 1000) break;
         }
+        try {
+          const or = await fetch("https://api.xero.com/api.xro/2.0/Organisation", { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+          const oj = await or.json().catch(() => ({})), st = oj?.Organisations?.[0]?.PaymentTerms?.Sales;
+          await priv().from("xero_link").update({ default_terms_day: st?.Day ?? null, default_terms_type: String(st?.Type || "") }).eq("id", 1);
+        } catch { /* the contacts still sync */ }
         const phone = (c: any, t: string) => { const p = (c.Phones || []).find((x: any) => x.PhoneType === t); return p ? [p.PhoneCountryCode, p.PhoneAreaCode, p.PhoneNumber].filter(Boolean).join(" ").trim() : ""; };
         const addr = (c: any) => (c.Addresses || []).find((x: any) => x.AddressType === "STREET" && (x.AddressLine1 || x.City)) || (c.Addresses || []).find((x: any) => x.AddressLine1 || x.City) || {};
         const now = new Date().toISOString();
@@ -168,7 +221,9 @@ Deno.serve(async (req) => {
           email: String(c.EmailAddress || "").trim().toLowerCase(), phone: phone(c, "DEFAULT"), mobile: phone(c, "MOBILE"),
           street: [a.AddressLine1, a.AddressLine2].filter(Boolean).join(", "), suburb: String(a.City || ""), state: String(a.Region || ""), postcode: String(a.PostalCode || ""),
           account_number: String(c.AccountNumber || ""), abn: String(c.TaxNumber || ""), is_customer: c.IsCustomer === true, is_supplier: c.IsSupplier === true,
-          xero_status: String(c.ContactStatus || "ACTIVE"), in_xero: true, synced_at: now, updated_at: now }; });
+          xero_status: String(c.ContactStatus || "ACTIVE"), in_xero: true, synced_at: now, updated_at: now,
+          /* the contact's own sales terms in Xero (none: Xero's default for the organisation) */
+          xero_terms_day: c.PaymentTerms?.Sales?.Day ?? null, xero_terms_type: String(c.PaymentTerms?.Sales?.Type || "") }; });
         const { data: have } = await admin().from("customers").select("id, xero_contact_id");
         const known = new Set((have || []).map((x: any) => String(x.xero_contact_id)));
         const added = rows.filter((r) => !known.has(String(r.xero_contact_id))).length, updated = rows.length - added;
@@ -179,14 +234,91 @@ Deno.serve(async (req) => {
         const ids = new Set(rows.map((r) => String(r.xero_contact_id)));
         const gone = (have || []).filter((x: any) => x.xero_contact_id && !ids.has(String(x.xero_contact_id))).map((x: any) => x.id);
         if (gone.length) await admin().from("customers").update({ in_xero: false, updated_at: now }).in("id", gone);
-        await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length }).eq("id", runId);
-        return { ok: true, contacts: rows.length, added, updated, gone: gone.length };
+        /* each customer's balances from their sales invoices (Xero's figures); a missing permission does not stop the sync */
+        let balances = "";
+        try {
+          const per = new Map<string, { appr: number; due: number; over: number; inv: number }>();
+          const open: any[] = [];   /* each unpaid invoice, for Home > COD balance */
+          const day = (v: unknown) => { const m = /\/Date\((\d+)/.exec(String(v || "")); return m ? new Date(Number(m[1])).toISOString().slice(0, 10) : (/^\d{4}-\d{2}-\d{2}/.test(String(v || "")) ? String(v).slice(0, 10) : null); };
+          const today = new Date().toISOString().slice(0, 10);
+          for (let page = 1; page <= 100; page++) {
+            const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices?summaryOnly=true&pageSize=1000&page=" + page + "&Statuses=SUBMITTED,AUTHORISED,PAID&where=" + encodeURIComponent('Type=="ACCREC"'),
+              { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+            const j = await r.json().catch(() => ({}));
+            if (r.status === 401 || r.status === 403) throw new Error("Xero did not allow reading invoices: press Reconnect once (balances need one more permission).");
+            if (!r.ok) throw new Error("Xero invoices: " + (j?.Detail || j?.Message || j?.Title || r.status));
+            const got: any[] = Array.isArray(j?.Invoices) ? j.Invoices : [];
+            for (const iv of got) {
+              const id = String(iv?.Contact?.ContactID || ""); if (!id) continue;
+              const b = per.get(id) || { appr: 0, due: 0, over: 0, inv: 0 }, total = Number(iv.Total) || 0, due = Number(iv.AmountDue) || 0;
+              if (iv.Status === "SUBMITTED") b.appr += total;
+              if (iv.Status === "AUTHORISED") { b.due += due; const dd = String(iv.DueDateString || iv.DueDate || "").slice(0, 10); if (dd && /^\d{4}-/.test(dd) && dd < today) b.over += due; }
+              if (iv.Status === "AUTHORISED" || iv.Status === "PAID") b.inv += total;
+              if ((iv.Status === "AUTHORISED" || iv.Status === "SUBMITTED") && (iv.Status === "SUBMITTED" ? total : due) > 0)
+                open.push({ xero_invoice_id: iv.InvoiceID, number: String(iv.InvoiceNumber || ""), reference: String(iv.Reference || ""), xero_contact_id: id, customer_name: String(iv.Contact?.Name || ""),
+                  status: iv.Status, invoice_date: day(iv.DateString || iv.Date), due_date: day(iv.DueDateString || iv.DueDate), total, amount_due: iv.Status === "SUBMITTED" ? total : due, synced_at: new Date().toISOString() });
+              per.set(id, b);
+            }
+            if (got.length < 1000) break;
+          }
+          const r2 = (n: number) => Math.round(n * 100) / 100, at = new Date().toISOString();
+          const { data: cs } = await admin().from("customers").select("id, xero_contact_id, xero_awaiting_approval, xero_awaiting_payment, xero_overdue, xero_invoiced");
+          for (const c of cs || []) {
+            const b = per.get(String(c.xero_contact_id)) || { appr: 0, due: 0, over: 0, inv: 0 };
+            const v = { xero_awaiting_approval: r2(b.appr), xero_awaiting_payment: r2(b.due), xero_overdue: r2(b.over), xero_invoiced: r2(b.inv) };
+            if (Number(c.xero_awaiting_approval) !== v.xero_awaiting_approval || Number(c.xero_awaiting_payment) !== v.xero_awaiting_payment || Number(c.xero_overdue) !== v.xero_overdue || Number(c.xero_invoiced) !== v.xero_invoiced)
+              await admin().from("customers").update({ ...v, xero_balances_at: at }).eq("id", c.id);
+          }
+          await admin().from("customers").update({ xero_balances_at: at }).is("xero_balances_at", null);
+          for (let i = 0; i < open.length; i += 500) { const u = await admin().from("xero_invoices").upsert(open.slice(i, i + 500), { onConflict: "xero_invoice_id" }); if (u.error) throw new Error("Saving the invoices: " + u.error.message); }
+          const keep = open.map((x) => x.xero_invoice_id);
+          const del = keep.length ? await admin().from("xero_invoices").delete().not("xero_invoice_id", "in", "(" + keep.join(",") + ")") : await admin().from("xero_invoices").delete().not("xero_invoice_id", "is", null);
+          if (del.error) throw new Error("Tidying the invoices: " + del.error.message);
+        } catch (e) { balances = e instanceof Error ? e.message : String(e); }
+        await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length, error: balances ? balances.slice(0, 500) : null }).eq("id", runId);
+        return { ok: true, contacts: rows.length, added, updated, gone: gone.length, balances_error: balances || null };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error: msg.slice(0, 500) }).eq("id", runId);
         return { error: msg };
       }
     };
+    /* one upload from the queue, now: a sales order is a Xero invoice, a purchase order a Xero purchase order; creating
+       sends the document, updating sends it again with its Xero id, deleting deletes a draft (or voids an approved one) */
+    if (action === "send_queue") {
+      const id = Number(body?.id); if (!Number.isSafeInteger(id) || id <= 0) return json({ error: "Send id" }, 400);
+      const { data: q } = await admin().from("xero_queue").select("*").eq("id", id).maybeSingle();
+      if (!q) return json({ error: "Not in the queue" }, 404);
+      if (q.status === "done") return json({ ok: true, already: true });
+      const claim = await admin().from("xero_queue").update({ status: "sending", attempts: (q.attempts || 0) + 1 }).eq("id", id).neq("status", "sending").select("id");
+      if (!claim.data?.length) return json({ error: "Already being sent" }, 409);
+      try {
+        const l = await access();
+        const isSO = q.kind === "SO", path = isSO ? "Invoices" : "PurchaseOrders", idKey = isSO ? "InvoiceID" : "PurchaseOrderID";
+        const doc = { ...(q.payload || {}) } as Record<string, unknown>;
+        if (q.action !== "create") { if (!q.xero_id) throw new Error("No Xero id to " + q.action + ": it was never created in Xero."); doc[idKey] = q.xero_id; }
+        if (q.action === "delete") {
+          /* a draft or awaiting approval is deleted; an approved invoice can only be voided (purchase orders: deleted) */
+          const cur = await fetch("https://api.xero.com/api.xro/2.0/" + path + "/" + q.xero_id, { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+          const cj = await cur.json().catch(() => ({})), st = String((cj?.[path] || [])[0]?.Status || "");
+          for (const k of Object.keys(doc)) if (k !== idKey) delete doc[k];
+          doc.Status = isSO && st === "AUTHORISED" ? "VOIDED" : "DELETED";
+        }
+        const r = await fetch("https://api.xero.com/api.xro/2.0/" + path, { method: q.action === "create" ? "PUT" : "POST",
+          headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ [path]: [doc] }) });
+        const j = await r.json().catch(() => ({}));
+        const el = (j?.Elements || [])[0], ve = (el?.ValidationErrors || []).map((v: any) => v.Message).join("; ");
+        if (!r.ok || ve) throw new Error("Xero: " + (ve || j?.Detail || j?.Message || j?.Title || r.status));
+        const xid = (j?.[path] || [])[0]?.[idKey] || q.xero_id;
+        await admin().from("xero_queue").update({ status: "done", xero_id: xid, last_error: null, sent_at: new Date().toISOString(), sent_by: who!.email }).eq("id", id);
+        return json({ ok: true, xero_id: xid });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await admin().from("xero_queue").update({ status: "failed", last_error: msg.slice(0, 1000) }).eq("id", id);
+        return json({ error: msg }, 502);
+      }
+    }
     if (action === "sync_items") { const r = await syncItems(); return json(r, (r as any).error ? 502 : 200); }
     if (action === "sync_contacts") { const r = await syncContacts(); return json(r, (r as any).error ? 502 : 200); }
     if (action === "sync_all") { const a = await syncItems(), b = await syncContacts(); return json({ items: a, contacts: b }, (a as any).error || (b as any).error ? 502 : 200); }

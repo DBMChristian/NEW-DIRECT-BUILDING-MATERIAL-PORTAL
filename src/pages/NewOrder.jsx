@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader.jsx';
 import AddressInput from '../components/AddressInput.jsx';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
+import { EPS_GRADES, epsKind, cutWidth, isPanel, cutSqm, cutBad, isFree, lineName, customMissing } from '../lib/custom.js';
 
 /* New Order (13 Nov 2026), with the previous portal's three tabs under the customer:
    1 Build SO: what the customer buys, one invoice (products, prices with reasons, the additional charges);
@@ -163,13 +164,17 @@ export default function NewOrder() {
   const add = (p) => {
     const c = p.category || 'Others', k0 = key();
     setLines((ls) => { const ex = ls.find((l) => l.product_id === p.id); if (ex) return ls.map((l) => (l === ex ? { ...l, qty: Number(l.qty) + 1 } : l));
-      const pr = priceFor(p); return [...ls, { key: k0, product_id: p.id, code: p.code, name: p.name, unit: p.unit || 'each', category: c, qty: 1, price: pr, list: pr, reason: '' }]; });
+      const pr = priceFor(p); const nl = { key: k0, product_id: p.id, code: p.code, name: p.name, baseName: p.name, unit: p.unit || 'each', category: c, qty: 1, price: pr, list: pr, reason: '', eps: {}, cut: {}, desc: '' }; if (cutWidth(nl)) nl.qty = 0; return [...ls, nl]; });
     /* arranged loads and POs: a new product goes on the first load of its material (else the first), and its supplier's PO */
     if (loadsHand) setLoadsHand((Ls) => { if (!Ls.length) return [{ ...blankLoad(1), items: { [k0]: 1 } }]; const i = Math.max(0, Ls.findIndex((L) => Object.keys(L.items).some((k) => lines.find((l) => l.key === k)?.category === c)));
       return Ls.map((L, j) => (j === i ? { ...L, items: { ...L.items, [k0]: 1 } } : L)); });
     if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id); if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
       return [...Ps, { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: { [k0]: 1 } }]; }); }
   };
+  const setCut = (l, ch) => { const cut = { ...(l.cut || {}), ...ch }, q = cutBad(cut) ? 0 : cutSqm(cutWidth(l), Number(cut.mm), Number(cut.n));
+    setLine(l.key, { cut, qty: q });
+    if (loadsHand) setLoadsHand((Ls) => { const has = Ls.filter((L) => L.items[l.key] != null); if (has.length !== 1) return Ls; return Ls.map((L) => (L === has[0] ? { ...L, items: { ...L.items, [l.key]: q } } : L)); }); };
+  const setEps = (l, ch) => setLine(l.key, { eps: { ...(l.eps || {}), ...ch } });
   const setLine = (k, ch) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...ch } : l)));
   const removeLine = (k) => setLines((ls) => ls.filter((x) => x.key !== k));
 
@@ -199,6 +204,7 @@ export default function NewOrder() {
     if (o.kind === 'order' && !o.booking_time) return 'Select a booking time.';
     if (o.sms === null) return 'SMS booking confirmation: Yes or No.';
     if (!lines.length) return 'Add at least one product.';
+    const cm = lines.map(customMissing).find(Boolean); if (cm) return 'Build SO: ' + cm;
     const bad = lines.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || allCharges.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
     if (bad) return 'Build SO: give the reason for the changed price of ' + bad.name + '.';
     for (const l of lines) { const onLoads = loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0); if (Math.abs(onLoads - l.qty) > 1e-6) return 'Build Load: ' + l.name + ' has ' + onLoads + ' of ' + l.qty + ' on loads.'; }
@@ -228,7 +234,7 @@ export default function NewOrder() {
       else { const r = await supabase.from('orders').update(head).eq('id', id).eq('status', 'draft'); if (r.error) throw r.error; }
       for (const t of ['order_pos', 'order_loads', 'order_lines']) { const r = await supabase.from(t).delete().eq('order_id', id); if (r.error) throw r.error; }
       /* the products, then the loads and what is on them (and their charges), then the POs */
-      const pl = await supabase.from('order_lines').insert(lines.map((l, i) => ({ order_id: id, product_id: l.product_id, code: l.code, name: l.name, unit: l.unit, qty: l.qty, price: l.price, list_price: l.list, price_reason: l.reason, from_stock: stockKeys.includes(l.key), sort: i }))).select('id');
+      const pl = await supabase.from('order_lines').insert(lines.map((l, i) => ({ order_id: id, product_id: l.product_id, code: l.code, name: lineName(l), custom: { eps: l.eps || {}, cut: l.cut || {}, desc: l.desc || '', base: l.baseName || l.name }, unit: l.unit, qty: l.qty, price: l.price, list_price: l.list, price_reason: l.reason, from_stock: stockKeys.includes(l.key), sort: i }))).select('id');
       if (pl.error) throw pl.error;
       const lineId = Object.fromEntries(lines.map((l, i) => [l.key, pl.data[i].id]));
       if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }); if (r.error) throw r.error; }
@@ -275,7 +281,7 @@ export default function NewOrder() {
     if (od.error) { setMsg({ bad: true, text: od.error.message }); return; }
     const d = od.data, prod = (ls.data || []).filter((l) => !l.is_charge), k = {};
     const L2 = prod.map((l) => { const kk = key(); k[l.id] = kk; const p = products.find((x) => x.id === l.product_id);
-      return { key: kk, product_id: l.product_id, code: l.code, name: l.name, unit: l.unit, category: p?.category || 'Others', qty: Number(l.qty), price: Number(l.price), list: Number(l.list_price ?? l.price), reason: l.price_reason || '' }; });
+      const cu = l.custom || {}; return { key: kk, product_id: l.product_id, code: l.code, name: cu.base || l.name, baseName: cu.base || l.name, eps: cu.eps || {}, cut: cu.cut || {}, desc: cu.desc || '', unit: l.unit, category: p?.category || 'Others', qty: Number(l.qty), price: Number(l.price), list: Number(l.list_price ?? l.price), reason: l.price_reason || '' }; });
     const site = String(d.site_street || '') + (d.site_suburb ? ', ' + d.site_suburb : '');
     setO({ id: d.id, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: digits8(d.contact_phone), mobile: true,
       email: d.email, their_po: d.their_po, instructions: d.instructions, site_street: d.site_street, site_suburb: d.site_suburb, delivery_date: d.delivery_date || '', booking_time: d.booking_time || '', sms: d.sms_confirm, plans: d.plans || [] });
@@ -427,8 +433,16 @@ export default function NewOrder() {
                   <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th /></tr></thead>
                   <tbody>
                     {ls.map((l) => { const changed = Math.abs(l.price - l.list) >= 0.005; return (
-                      <tr key={l.key}><td><b>{l.name}</b><small>{l.code} · {l.unit}</small></td>
-                        <td><span className="no-qty"><button type="button" aria-label="Less" onClick={() => setLine(l.key, { qty: Math.max(0, r2(l.qty - 1)) })}>−</button><input value={l.qty} inputMode="decimal" onChange={(e) => setLine(l.key, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Quantity of ' + l.name} /><button type="button" aria-label="More" onClick={() => setLine(l.key, { qty: r2(l.qty + 1) })}>+</button></span></td>
+                      <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code} · {l.unit}</small>
+                        {epsKind(l.code) && <span className="no-cus">{(epsKind(l.code) === 'sheet'
+                          ? [['L', 'Length mm', 'e.g. 2500'], ['W', 'Width mm', 'e.g. 1200'], ['H', 'Height mm', 'e.g. 100']] : [['D', 'Diameter mm', 'e.g. 600'], ['H', 'Height mm', 'e.g. 100']]).map(([f, lab, ph]) =>
+                          <label key={f}>{lab} <i className="req">*</i><input value={(l.eps || {})[f] || ''} inputMode="numeric" placeholder={ph} onChange={(e) => setEps(l, { [f]: e.target.value.replace(/[^0-9.]/g, '') })} /></label>)}
+                          <label>Grade <i className="req">*</i><select value={(l.eps || {}).grade || ''} onChange={(e) => setEps(l, { grade: e.target.value })}><option value="">Select grade</option>{EPS_GRADES.map((g) => <option key={g}>{g}</option>)}</select></label></span>}
+                        {cutWidth(l) > 0 && <span className="no-cus"><label>{isPanel(l) ? 'Panels' : 'Sheets'} <i className="req">*</i><input value={(l.cut || {}).n || ''} inputMode="numeric" placeholder="how many" onChange={(e) => setCut(l, { n: e.target.value.replace(/\D/g, '') })} /></label>
+                          <label>Custom length (mm) <i className="req">*</i><input value={(l.cut || {}).mm || ''} inputMode="numeric" placeholder="e.g. 1520" onChange={(e) => setCut(l, { mm: e.target.value.replace(/\D/g, '') })} /></label>
+                          <small className="no-cush">{cutBad(l.cut) ? 'Enter the number of ' + (isPanel(l) ? 'panels' : 'sheets') + ' and the length (300 to 12000 mm): the m² is worked out (' + (cutWidth(l) === 1 / 3 ? '⅓' : cutWidth(l)) + ' m wide).' : l.cut.n + ' × ' + l.cut.mm + ' mm × ' + (cutWidth(l) === 1 / 3 ? '⅓' : cutWidth(l)) + ' m = ' + cutSqm(cutWidth(l), Number(l.cut.mm), Number(l.cut.n)).toFixed(3) + ' m²'}</small></span>}
+                        {isFree(l) && <textarea className="no-desc" rows={2} maxLength={1000} value={l.desc || ''} placeholder="Type the description for the customer *" onChange={(e) => setLine(l.key, { desc: e.target.value })} />}</td>
+                        <td>{cutWidth(l) > 0 ? <span className="no-m2"><b>{Number(l.qty).toFixed(3)}</b> m²<small>from the length</small></span> : <span className="no-qty"><button type="button" aria-label="Less" onClick={() => setLine(l.key, { qty: Math.max(0, r2(l.qty - 1)) })}>−</button><input value={l.qty} inputMode="decimal" onChange={(e) => setLine(l.key, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Quantity of ' + l.name} /><button type="button" aria-label="More" onClick={() => setLine(l.key, { qty: r2(l.qty + 1) })}>+</button></span>}</td>
                         <td className="r"><input className={'no-price' + (changed ? ' ch' : '')} value={l.price} inputMode="decimal" onChange={(e) => setLine(l.key, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + l.name} />
                           {changed && <><small className="no-was">list {cash(l.list)} <button type="button" className="link" onClick={() => setLine(l.key, { price: l.list, reason: '' })}>↺</button></small><input className={'no-reason' + (l.reason.trim().length < 3 ? ' need' : '')} value={l.reason} onChange={(e) => setLine(l.key, { reason: e.target.value })} placeholder="Reason for the price *" /></>}</td>
                         <td className="r"><b>{cash(r2(l.qty * l.price))}</b></td>
@@ -455,7 +469,7 @@ export default function NewOrder() {
                 </div>
                 <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th>Move to</th></tr></thead><tbody>
                   {Object.entries(P.items).filter(([, v]) => Number(v) > 0).map(([k, v]) => { const l = lineOf(k); if (!l) return null; return (
-                    <tr key={k}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
+                    <tr key={k}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                       <td><input className="no-price" value={v} inputMode="decimal" onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 } } : x)))} aria-label={'Order quantity of ' + l.name} /></td>
                       <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: 0 } } : to !== 'stock' && x.uid === to ? { ...x, items: { ...x.items, [k]: qtyIn(x.items, k) + Number(v) } } : x))); }}>
                         <option value="">Move…</option>{pos.filter((x) => x.uid !== P.uid).map((x, j) => <option key={x.uid} value={x.uid}>PO {pos.indexOf(x) + 1} · {x.supplier || 'no supplier'}</option>)}<option value="stock">From Penrith stock (no PO)</option></select></td></tr>); })}
@@ -463,7 +477,7 @@ export default function NewOrder() {
               </div>))}
             {stockKeys.length > 0 && <div className="no-grp"><div className="no-gh" style={{ background: '#57534E' }}>From Penrith stock <small>no PO</small></div>
               <div className="no-tw"><table className="no-t"><tbody>{stockKeys.map((k) => { const l = lineOf(k); return (
-                <tr key={k}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
+                <tr key={k}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                   <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; if (to === 'new') editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: { [k]: l.qty } }]); else editPos((Ps) => Ps.map((x) => (x.uid === to ? { ...x, items: { ...x.items, [k]: l.qty } } : x))); }}>
                     <option value="">Put on a PO…</option>{pos.map((x, j) => <option key={x.uid} value={x.uid}>PO {j + 1} · {x.supplier || 'no supplier'}</option>)}<option value="new">A new PO</option></select></td></tr>); })}</tbody></table></div></div>}
             {lines.length > 0 && <button type="button" className="btn" onClick={() => editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: {} }])}>+ Add a PO</button>}
@@ -485,7 +499,7 @@ export default function NewOrder() {
                 {cats.includes('Concrete') && questions('Concrete', a, (ch) => setAns(L.uid, ch))}
                 <div className="no-tw"><table className="no-t"><thead><tr><th>On this load</th><th>Sold</th><th>On it</th><th>Move to</th></tr></thead><tbody>
                   {lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => (
-                    <tr key={l.key}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
+                    <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                       <td><input className="no-price" value={qtyIn(L.items, l.key)} inputMode="decimal" onChange={(e) => setLoadQty(L.uid, l.key, Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)} aria-label={'Quantity of ' + l.name + ' on load ' + L.n} /></td>
                       <td><select className="no-move" value="" onChange={(e) => e.target.value && moveToLoad(l.key, L.uid, e.target.value)}><option value="">Move…</option>{loads.filter((x) => x.uid !== L.uid).map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}</select></td></tr>))}
                   {ch.length > 0 && <tr className="no-chh"><td colSpan="4">ADDITIONAL CHARGES FOR THIS LOAD</td></tr>}

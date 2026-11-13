@@ -101,6 +101,42 @@ Deno.serve(async (req) => {
       const { data: last } = await admin().from("xero_sync_runs").select("*").eq("kind", kind).order("id", { ascending: false }).limit(1).maybeSingle();
       return json({ connected: !!l?.refresh_token, tenant: l?.tenant_name || null, default_terms: l?.default_terms_type ? { day: l.default_terms_day, type: l.default_terms_type } : null, connected_by: l?.connected_by || null, connected_at: l?.connected_at || null, last_sync: last || null, setup: !!(env("XERO_CLIENT_ID") && env("XERO_CLIENT_SECRET") && env("XERO_REDIRECT_URI")) });
     }
+    /* + New customer in New Order (13 Nov 2026): the contact is made in Xero straight away (name, email, phone), and the
+       portal's customer is that contact (linked by its Xero id), so a sync never brings it back as a second customer.
+       A contact of the same name already in Xero is used, not doubled. Office and admin. */
+    if (action === "create_contact") {
+      if (who.role !== "admin" && who.role !== "office") return json({ error: "Only the office can add customers" }, 403);
+      const name = String(body?.name || "").trim().slice(0, 255), email = String(body?.email || "").trim().toLowerCase().slice(0, 255), phone = String(body?.phone || "").trim().slice(0, 50);
+      if (name.length < 2) return json({ error: "Enter the company or name" }, 400);
+      try {
+        const l = await access();
+        const h = { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json", "Content-Type": "application/json" };
+        /* the same name already in Xero: use it */
+        const f = await fetch("https://api.xero.com/api.xro/2.0/Contacts?where=" + encodeURIComponent('Name=="' + name.replace(/"/g, '') + '"'), { headers: h });
+        const fj = await f.json().catch(() => ({}));
+        let c = (fj?.Contacts || [])[0], existed = !!c;
+        if (!c) {
+          const mob = /^(\+?61|0)?4/.test(phone.replace(/[^0-9+]/g, ""));
+          const doc: Record<string, unknown> = { Name: name, ...(email ? { EmailAddress: email } : {}), IsCustomer: true,
+            ...(phone ? { Phones: [{ PhoneType: mob ? "MOBILE" : "DEFAULT", PhoneNumber: phone }] } : {}) };
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Contacts", { method: "PUT", headers: h, body: JSON.stringify({ Contacts: [doc] }) });
+          const j = await r.json().catch(() => ({}));
+          const ve = ((j?.Elements || [])[0]?.ValidationErrors || []).map((v: any) => v.Message).join("; ");
+          if (!r.ok || ve) throw new Error("Xero: " + (ve || j?.Detail || j?.Message || j?.Title || r.status));
+          c = (j?.Contacts || [])[0];
+        }
+        if (!c?.ContactID) throw new Error("Xero gave no contact back");
+        const row = { xero_contact_id: c.ContactID, name: c.Name || name, email: (c.EmailAddress || email || "").toLowerCase(), is_customer: true, in_xero: true, xero_status: c.ContactStatus || "ACTIVE", synced_at: new Date().toISOString(),
+          ...(phone ? (/^(\+?61|0)?4/.test(phone.replace(/[^0-9+]/g, "")) ? { mobile: phone } : { phone }) : {}) };
+        const { data: have } = await admin().from("customers").select("id").eq("xero_contact_id", c.ContactID).maybeSingle();
+        const saved = have ? await admin().from("customers").update(row).eq("id", have.id).select("*").single()
+          : await admin().from("customers").insert({ ...row, terms: "cod", price_list: "builder" }).select("*").single();
+        if (saved.error) throw new Error(saved.error.message);
+        return json({ ok: true, existed, customer: saved.data });
+      } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 502); }
+    }
+    /* Sync (Xero) on New Order: the office may pull the customers too */
+    if (action === "sync_contacts" && who.role === "office") { const r = await syncContacts(); return json(r, (r as any).error ? 502 : 200); }
     if (who.role !== "admin") return json({ error: "Only an admin can do that" }, 403);
 
     if (action === "connect") {

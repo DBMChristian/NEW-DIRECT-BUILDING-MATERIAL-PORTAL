@@ -132,11 +132,16 @@ export default function NewOrder() {
     const { error } = await supabase.functions.invoke('xero', { body: { action: 'sync_contacts' } });
     if (o.customer) { const { data } = await supabase.from('customers').select('*').eq('id', o.customer.id).maybeSingle(); if (data) setO((x) => ({ ...x, customer: data })); }
     setSyncing(false); setMsg(error ? { bad: true, text: 'Sync: ' + error.message } : { text: 'Customers synced from Xero.' }); };
-  /* + New customer: added here; it goes to Xero with its first invoice */
+  /* + New customer: made in Xero straight away, then picked (a name already in Xero is used, not doubled) */
+  const [adding, setAdding] = useState(false);
   const addCustomer = async () => {
-    const { data, error } = await supabase.from('customers').insert({ name: newCust.name.trim(), email: newCust.email.trim(), phone: newCust.phone.trim(), is_customer: true, in_xero: false, terms: 'cod', price_list: 'builder' }).select('*').single();
-    if (error) { setMsg({ bad: true, text: error.message }); return; }
-    setNewCust(null); pickCustomer(data);
+    setAdding(true); setMsg(null);
+    const { data, error } = await supabase.functions.invoke('xero', { body: { action: 'create_contact', name: newCust.name, email: newCust.email, phone: newCust.phone } });
+    let m = data?.error; if (error) { m = error.message; try { const b = await error.context.json(); m = b.error || m; } catch { /* as it is */ } }
+    setAdding(false);
+    if (m) { setMsg({ bad: true, text: 'Not added: ' + m }); return; }
+    setNewCust(null); pickCustomer(data.customer);
+    setMsg({ text: data.existed ? data.customer.name + ' was already in Xero: picked.' : data.customer.name + ' added to Xero and picked.' });
   };
   /* plans or drawings: kept with the order (private) */
   const uploadPlans = async (files) => {
@@ -351,11 +356,11 @@ export default function NewOrder() {
             {notes.map((n) => <div key={n.id} className="no-note">{n.text}<small>{n.by_name || n.by_email} · {new Date(n.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</small></div>)}
             {o.plans.length > 0 && <div className="no-files">{o.plans.map((f) => <button key={f.path} type="button" className="no-file" onClick={() => openPlan(f)}>{f.name} ↗</button>)}</div>}
             {newCust && <div className="no-newc">
-              <b>New customer</b><span className="no-sub">Added here now; it goes to Xero with its first invoice.</span>
+              <b>New customer</b><span className="no-sub">Made in Xero straight away (Direct Building Material), then picked for this order.</span>
               <div className="no-grid"><label className="no-f">Company or name <span className="req">*</span><input value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} autoFocus /></label>
                 <label className="no-f">Email<input type="email" value={newCust.email} onChange={(e) => setNewCust({ ...newCust, email: e.target.value })} /></label>
                 <label className="no-f">Phone<input value={newCust.phone} onChange={(e) => setNewCust({ ...newCust, phone: e.target.value })} inputMode="tel" /></label></div>
-              <div className="no-row"><button type="button" className="btn" onClick={() => setNewCust(null)}>Cancel</button><button type="button" className="btn btn-red" disabled={newCust.name.trim().length < 2} onClick={addCustomer}>Add customer</button></div>
+              <div className="no-row"><button type="button" className="btn" onClick={() => setNewCust(null)}>Cancel</button><button type="button" className="btn btn-red" disabled={adding || newCust.name.trim().length < 2} onClick={addCustomer}>{adding ? 'Adding to Xero…' : 'Add to Xero'}</button></div>
             </div>}
           </section>
         </div>

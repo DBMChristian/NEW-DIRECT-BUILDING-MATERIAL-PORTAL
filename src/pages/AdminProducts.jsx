@@ -7,6 +7,8 @@ import Icon from '../components/Icon.jsx';
 /* Admin > Products and prices (13 Nov 2026): every product as Xero has it, pulled with "Sync from Xero", and Direct's own
    price lists (builder, installer, retail) beside Xero's price. Category, unit and the three prices are Direct's: typed
    here, saved when you leave the box, never changed by a sync. */
+const CATEGORIES = ['Concrete', 'Wafflepods', 'Rediwall', 'Reinforcement', 'Hebel', 'Bricks', 'NRG', 'Bluedeck', 'Others'];
+const TYPES = [['item', 'Item'], ['additional_charge', 'Additional charge']];
 const money = (v) => (v === null || v === undefined || v === '' ? '' : '$' + Number(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const when = (t) => (t ? new Date(t).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
 
@@ -35,6 +37,17 @@ function TextBox({ p, field, onSaved, list }) {
   const save = async () => { const t = String(v).trim(); if (t === (p[field] || '')) return;
     const { error } = await supabase.from('products').update({ [field]: t, updated_at: new Date().toISOString() }).eq('id', p.id); if (!error) onSaved(p.id, { [field]: t }); };
   return <input className="pp-text" list={list} value={v} onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} aria-label={field + ' of ' + p.code} />;
+}
+
+function Pick({ p, field, options, empty, onSaved }) {
+  const [saving, setSaving] = useState(false);
+  const save = async (v) => { setSaving(true); const { error } = await supabase.from('products').update({ [field]: v, updated_at: new Date().toISOString() }).eq('id', p.id); setSaving(false); if (!error) onSaved(p.id, { [field]: v }); };
+  return (
+    <select className={'pp-pick' + (p[field] ? '' : ' pp-unset') + (saving ? ' pp-saving' : '')} value={p[field] || ''} onChange={(e) => save(e.target.value)} aria-label={field.replace('_', ' ') + ' of ' + p.code}>
+      {empty && <option value="">{empty}</option>}
+      {options.map((o) => (Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o}>{o}</option>))}
+    </select>
+  );
 }
 
 export default function AdminProducts() {
@@ -66,17 +79,18 @@ export default function AdminProducts() {
   };
   const patch = (id, ch) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...ch } : r)));
 
-  const cats = useMemo(() => [...new Set((rows || []).map((r) => r.category).filter(Boolean))].sort(), [rows]);
+  const cats = CATEGORIES;
+  const [type, setType] = useState('');
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero && r.active : !r.in_xero)) && (!cat || (cat === '-' ? !r.category : r.category === cat))
+    return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero && r.active : !r.in_xero)) && (!cat || (cat === '-' ? !r.category : r.category === cat)) && (!type || r.sub_category === type)
       && (!t || (r.code + ' ' + r.name + ' ' + r.description + ' ' + r.category).toLowerCase().includes(t)));
-  }, [rows, q, cat, show]);
+  }, [rows, q, cat, show, type]);
   const last = status?.last_sync;
 
   return (
     <>
-      <PageHeader title="PRODUCTS" sub="Every product from Xero, with Direct's price lists. Sync from Xero pulls Xero's items; the categories, units and price lists are typed here." back={<Link to="/admin" className="page-back"><Icon name="back" size={14} /> Admin</Link>} />
+      <PageHeader title="PRODUCTS" sub="Every product from Xero, with Direct's price lists. Sync from Xero pulls Xero's items; the category, sub category, unit and the Builder, Installer and Online prices are set here." back={<Link to="/admin" className="page-back"><Icon name="back" size={14} /> Admin</Link>} />
       <div className="pp">
         <div className="pp-bar">
           <div className="pp-xero">
@@ -92,25 +106,26 @@ export default function AdminProducts() {
         <div className="pp-filters">
           <input type="search" className="pp-search" value={q} onChange={(e) => { setQ(e.target.value); setN(100); }} placeholder="Search a code, name or description…" aria-label="Search products" />
           <select value={cat} onChange={(e) => { setCat(e.target.value); setN(100); }} aria-label="Category"><option value="">All categories</option><option value="-">No category yet</option>{cats.map((c) => <option key={c}>{c}</option>)}</select>
+          <select value={type} onChange={(e) => { setType(e.target.value); setN(100); }} aria-label="Sub category"><option value="">Items and charges</option>{TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="active">In Xero</option><option value="gone">No longer in Xero</option><option value="all">All</option></select>
           <span className="pp-count">{rows === null ? 'Loading…' : list.length + ' of ' + rows.length + ' products'}</span>
         </div>
-        <datalist id="pp-cats">{cats.map((c) => <option key={c} value={c} />)}</datalist>
         <div className="pp-table-wrap">
           <table className="pp-table">
-            <thead><tr><th>Code</th><th>Product</th><th>Category</th><th>Unit</th><th className="r">Xero price</th><th className="r">Builder</th><th className="r">Installer</th><th className="r">Retail</th><th className="r">Xero cost</th></tr></thead>
+            <thead><tr><th>Code</th><th>Product</th><th>Category</th><th>Sub category</th><th>Unit</th><th className="r">Xero price</th><th className="r">Builder</th><th className="r">Installer</th><th className="r">Online</th><th className="r">Xero cost</th></tr></thead>
             <tbody>
-              {rows !== null && !list.length && <tr><td colSpan="9" className="pp-empty">{rows.length ? 'No product matches.' : status?.connected ? 'No products yet: press Sync from Xero.' : 'No products yet: connect Xero, then Sync from Xero.'}</td></tr>}
+              {rows !== null && !list.length && <tr><td colSpan="10" className="pp-empty">{rows.length ? 'No product matches.' : status?.connected ? 'No products yet: press Sync from Xero.' : 'No products yet: connect Xero, then Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((p) => (
                 <tr key={p.id} className={p.in_xero ? '' : 'pp-gone'}>
                   <td className="pp-code">{p.code}</td>
                   <td><b>{p.name}</b>{p.description && p.description !== p.name ? <small>{p.description}</small> : null}{!p.in_xero && <small className="pp-tag">No longer in Xero</small>}</td>
-                  <td><TextBox p={p} field="category" list="pp-cats" onSaved={patch} /></td>
+                  <td><Pick p={p} field="category" options={CATEGORIES} empty="Choose…" onSaved={patch} /></td>
+                  <td><Pick p={p} field="sub_category" options={TYPES} onSaved={patch} /></td>
                   <td><TextBox p={p} field="unit" onSaved={patch} /></td>
                   <td className="r">{money(p.xero_sales_price)}</td>
                   <td className="r"><PriceBox p={p} field="price_builder" onSaved={patch} /></td>
                   <td className="r"><PriceBox p={p} field="price_installer" onSaved={patch} /></td>
-                  <td className="r"><PriceBox p={p} field="price_retail" onSaved={patch} /></td>
+                  <td className="r"><PriceBox p={p} field="price_online" onSaved={patch} /></td>
                   <td className="r pp-muted">{money(p.xero_cost_price)}</td>
                 </tr>
               ))}

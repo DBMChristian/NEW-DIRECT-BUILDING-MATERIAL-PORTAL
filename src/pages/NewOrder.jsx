@@ -190,7 +190,9 @@ export default function NewOrder() {
     return { to: (r?.email_to || []).join(','), cc: (r?.email_cc || []).join(',') }; };
   /* the form-added lines of a PO's materials on its loads (the impact charge once) */
   const poExtra = (P, ks) => { const cats = new Set(ks.map((k) => lineOf(k)?.category)), lds = new Set(loads.filter((x) => ks.some((k) => qtyIn(x.items, k) > 0)).map((x) => x.uid));
-    return allCharges.filter((x) => !x.off && cats.has(x.cat) && (x.load === '' || lds.has(x.load))); };
+    const byLoad = new Map(loads.map((L) => [L.uid, L]));
+    return allCharges.filter((x) => !x.off && cats.has(x.cat) && (x.load === '' || lds.has(x.load)) && !(isDelivery(x) && ((byLoad.get(x.load) || {}).answers || {}).delivered_by === 'internal')); };
+  const poExtraMerged = (P, ks) => mergeCh(poExtra(P, ks));
   const poMail = (P, number, orderNo = '') => {
     const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), L = loads.find((x) => ks.some((k) => qtyIn(x.items, k) > 0)) || {};
     const d = L.date ? new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
@@ -198,9 +200,9 @@ export default function NewOrder() {
       html: poEmailHtml({ po: number, supplier: P.supplier, portal: P.portal, order: orderNo || 'number given on placing', customer: o.customer?.name, deliverTo: P.deliverTo, site: L.site || headSite, date: d, time: L.time,
         fulfil: L.fulfil, contact: [o.contact_name, phoneOut(o)].filter(Boolean).join(' · '), note: P.notes,
         lines: [...ks.map((k) => { const l = lineOf(k); return { code: l.code, name: lineName(l), qty: Number(P.items[k]), unit: l.unit }; }),
-          ...poExtra(P, ks).filter((x) => x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit }))],
+          ...poExtraMerged(P, ks).filter((x) => x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit }))],
         /* the additional charges of its materials on its loads (the free bags with the lines), and their questions */
-        charges: poExtra(P, ks).filter((x) => !x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit === 'charge' ? '' : x.unit })),
+        charges: poExtraMerged(P, ks).filter((x) => !x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit === 'charge' ? '' : x.unit })),
         questions: (() => { const cats = new Set(ks.map((k) => lineOf(k)?.category)), a = L.answers || {}, yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : ''), out = [];
           if (cats.has('Concrete')) out.push({ title: 'Concrete', items: [['Pour', a.pour], ['Truck', a.truck], ['Spacing', a.spacing], ['Finish', a.message], ['Tester', yn(a.tester)], ['Coloured', yn(a.coloured)], ['Colour', a.coloured === 'yes' ? a.colour : '']] });
           if (cats.has('Wafflepods') && L.fulfil === 'delivery') out.push({ title: 'Waffle pods', items: [['Location', (WP_LOCATIONS.find((x) => x[0] === a.location) || [, a.location])[1]], ['Driving time', a.hours ? a.hours + ' hours one way' : ''], ['Scrap pick-up', yn(a.scrap)], ['Trailer access', yn(a.trailer)], ['Gate code', a.gate]] });
@@ -302,11 +304,18 @@ export default function NewOrder() {
   }), [loads, lines, over, products, extraPrices, o.customer]);
   const impc = byCode.get('impc')?.active ? impcFor(lines) : null;
   const allCharges = [...(impc ? [{ ...impc, load: '', list: impc.price, reason: '', off: false }] : []), ...loadCharges.flatMap((x) => x.ch)];
+  /* the same charge on several loads (e.g. two Rediwall deliveries) is one line with its quantity added up (13 Nov 2026);
+     a change to it (price, reason, remove) goes on each of its loads */
+  const mergeCh = (list) => { const out = [];
+    list.forEach((x) => { const k = x.cat + '|' + x.code + '|' + x.name + '|' + x.price + '|' + (x.off ? 1 : 0);
+      const m = out.find((y) => y.mk === k); if (m) { m.qty = r2(m.qty + Number(x.qty)); m.parts.push(x); } else out.push({ ...x, mk: k, qty: Number(x.qty), parts: [x], load: 'm', key: k }); });
+    return out; };
+  const isDelivery = (x) => ['FR-CRANE/REO', 'WPDEL'].includes(String(x.code).toUpperCase());
   const goods = r2(lines.reduce((s, l) => s + r2(l.qty * l.price), 0)), chSum = r2(allCharges.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0));
   const sub = r2(goods + chSum), gst = r2(sub * 0.1), total = r2(sub + gst);
   const owes = Number(o.customer?.xero_awaiting_payment || 0) + Number(o.customer?.xero_awaiting_approval || 0);
   const overLimit = o.customer && o.customer.credit_limit != null && owes + (o.kind === 'order' ? total : 0) > Number(o.customer.credit_limit);
-  const setCharge = (x, ch) => { const k = x.load + '|' + x.key; setOver((O) => ({ ...O, [k]: { ...(O[k] || {}), ...ch } })); };
+  const setCharge = (x, ch) => { const parts = x.parts || [x]; setOver((O) => { const N = { ...O }; parts.forEach((p) => { const k = p.load + '|' + p.key; N[k] = { ...(N[k] || {}), ...ch }; }); return N; }); };
 
   /* ---------- what is still missing ---------- */
   const missing = useMemo(() => {
@@ -478,6 +487,21 @@ export default function NewOrder() {
   const catAnswers = (c) => (loads.find((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)) || {}).answers || {};
   const setCatAns = (c, ch) => loads.filter((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)).forEach((L) => setAns(L.uid, ch));
   const catDelivery = (c) => loads.some((L) => L.fulfil === 'delivery' && lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0));
+  /* who delivers a load (13 Nov 2026): when a further delivery appears for a material (a second load, or a pick-up turned
+     delivery), the form asks: the supplier's delivery (it goes on the supplier's PO too) or Direct's own (internal: only
+     on the customer's sales order). The first delivery of a material is the supplier's. */
+  const askDelivery = (() => {
+    const seen = new Set();
+    for (const L of loads) {
+      const cats = [...new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category))].filter((c) => c !== 'Concrete');
+      if (L.fulfil !== 'delivery' || !cats.length) continue;
+      const first = cats.some((c) => !seen.has(c)); cats.forEach((c) => seen.add(c));
+      if ((L.answers || {}).delivered_by) continue;
+      if (!first) return { L, cats };
+    }
+    return null; })();
+  const answerDelivery = (L, by) => setAns(L.uid, { delivered_by: by });
+
   /* a function, not a component: the price box keeps its focus while typing */
   const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
     <tr key={x.load + x.key} className={(x.asItem ? 'no-autoi' : 'no-chr') + (x.off ? ' off' : '')}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
@@ -574,7 +598,7 @@ export default function NewOrder() {
           <section className="no-card" aria-label="On this order">
             <div className="no-ct">On this order{soCats.length > 1 && <span className="no-foldall"><button type="button" className="link" onClick={() => setFolded(Object.fromEntries(soCats.map((c) => [c, true])))}>Minimise all</button><button type="button" className="link" onClick={() => setFolded({})}>Expand all</button></span>}</div>
             {!lines.length && <p className="no-sub">Nothing yet: pick a material or search, then press Add.</p>}
-            {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
+            {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = mergeCh(allCharges.filter((x) => x.cat === c)), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
               <div key={c} className="no-grp">
                 <div className="no-gh no-ghb" style={{ background: HEAD[c] }}><button type="button" className="no-fold" aria-expanded={!folded[c]} aria-label={(folded[c] ? 'Expand ' : 'Minimise ') + c} onClick={() => setFolded((f) => ({ ...f, [c]: !f[c] }))}>{folded[c] ? '▸' : '▾'}</button>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small>{(() => { const cs = r2(ls.reduce((t, l) => t + costOf(l), 0) + chs.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sum - cs); return <span className="no-ghp">Profit {cash(pr)} · {pct(pr, sum)}%</span>; })()}</div>
                 {!folded[c] && <>
@@ -634,7 +658,7 @@ export default function NewOrder() {
                       <td className="r no-cost">{unitCost(l) ? cash(unitCost(l)) : '—'}</td><td className="r"><b>{cash(r2(unitCost(l) * Number(v)))}</b></td>
                       <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; setStockByHand((m) => ({ ...m, [k]: to === 'stock' })); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: 0 } } : to !== 'stock' && x.uid === to ? { ...x, items: { ...x.items, [k]: qtyIn(x.items, k) + Number(v) } } : x))); }}>
                         <option value="">Move…</option>{pos.filter((x) => x.uid !== P.uid).map((x, j) => <option key={x.uid} value={x.uid}>PO {pos.indexOf(x) + 1} · {x.supplier || 'no supplier'}</option>)}<option value="stock">From Penrith stock (no PO)</option></select></td></tr>); })}
-                  {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), ex = poExtra(P, ks), its = ex.filter((x) => x.asItem), chs2 = ex.filter((x) => !x.asItem);
+                  {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), ex = poExtraMerged(P, ks), its = ex.filter((x) => x.asItem), chs2 = ex.filter((x) => !x.asItem);
                     const xrow = (x) => <tr key={'x' + x.load + x.key} className={x.asItem ? 'no-autoi' : 'no-chr'}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small></td><td>{x.qty}</td><td>{x.qty}</td>
                       <td className="r no-cost">{x.free ? cash(0) : unitCost(x) ? cash(unitCost(x)) : '—'}</td><td className="r"><b>{cash(x.free ? 0 : costOf(x))}</b></td><td className="no-sub">follows the order</td></tr>;
                     const total = r2(ks.reduce((t, k) => t + unitCost(lineOf(k)) * Number(P.items[k]), 0) + ex.reduce((t, x) => t + (x.free ? 0 : costOf(x)), 0));
@@ -687,6 +711,12 @@ export default function NewOrder() {
           </section>}
         </div>
 
+        {askDelivery && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-labelledby="dl-t">
+          <div className="no-prevbox no-askd"><div className="no-prevh"><b id="dl-t">A delivery was added</b></div>
+            <div className="no-askb"><p><b>Load {askDelivery.L.n}</b> · {askDelivery.cats.join(', ')} is another delivery. It goes on the customer's sales order (the delivery quantity goes up).</p>
+              <p>Who delivers it?</p>
+              <button type="button" className="btn btn-red" onClick={() => answerDelivery(askDelivery.L, 'supplier')}>Supplier delivery<small>also added to the supplier's PO (its delivery quantity goes up)</small></button>
+              <button type="button" className="btn" onClick={() => answerDelivery(askDelivery.L, 'internal')}>Internal delivery<small>Direct's own truck: on the sales order only, the PO stays as it is</small></button></div></div></div>}
         {preview && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-label="Email preview" onClick={(e) => { if (e.target === e.currentTarget) setPreview(null); }}>
           <div className="no-prevbox"><div className="no-prevh"><b>Email preview</b><small>Subject: {preview.subject}</small><button type="button" className="ap-x" onClick={() => setPreview(null)} aria-label="Close">×</button></div>
             <div className="no-prevmail" dangerouslySetInnerHTML={{ __html: preview.html }} /></div></div>}
@@ -694,7 +724,7 @@ export default function NewOrder() {
           <section className="no-card">
             <div className="no-sidehd">{o.kind === 'quote' ? 'QUOTE' : 'ORDER'}</div>
             {/* every line, by material: its items, then its additional charges */}
-            {soCats.length > 0 && <div className="no-sumlist">{soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c && !x.off); return (
+            {soCats.length > 0 && <div className="no-sumlist">{soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = mergeCh(allCharges.filter((x) => x.cat === c && !x.off)); return (
               <div key={c} className="no-sg">
                 <div className="no-sgh" style={{ background: HEAD[c] }}>{c}<b>{cash(r2(ls.reduce((t, l) => t + r2(l.qty * l.price), 0) + chs.reduce((t, x) => t + r2(x.qty * x.price), 0)))}</b></div>
                 <div className="no-ssh">Items</div>

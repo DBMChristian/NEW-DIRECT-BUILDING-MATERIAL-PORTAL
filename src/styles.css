@@ -692,3 +692,4 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-askd{max-width:480px}.no-askb{padding:14px 16px;display:flex;flex-direction:column;gap:10px;font-size:13.5px}.no-askb p{margin:0}
 .no-askb .btn{height:auto;padding:10px 12px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:14px;text-align:left}
 .no-askb .btn small{font-weight:400;font-size:12px;opacity:.9}
+.no-dby .no-seg{width:190px}.no-dby small{display:block;font-size:11px;color:#57534E;margin-top:2px}

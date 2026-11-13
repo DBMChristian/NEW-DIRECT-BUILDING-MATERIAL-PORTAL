@@ -512,6 +512,7 @@ export default function NewOrder() {
     }
     return null; })();
   const answerDelivery = (L, by) => setAns(L.uid, { delivered_by: by });
+  const deliveredBy = (L) => ((L.answers || {}).delivered_by === 'internal' ? 'internal' : 'supplier');
 
   /* a function, not a component: the price box keeps its focus while typing */
   const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
@@ -694,6 +695,8 @@ export default function NewOrder() {
                 <div className="no-gh" style={{ background: cats.length === 1 ? HEAD[cats[0]] : '#1E1A17' }}>Load {L.n} <small>{cats.join(' · ') || 'empty'}</small>{loads.length > 1 && <button type="button" className="no-ghx" onClick={() => removeLoad(L.uid)}>Remove load</button>}</div>
                 <div className="no-load">
                   <Seg value={L.fulfil} set={(v) => setLoad(L.uid, { fulfil: v })} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />
+                  {L.fulfil === 'delivery' && <div className="no-f no-dby">Delivered by <span className="req">*</span><Seg value={deliveredBy(L)} set={(v) => answerDelivery(L, v)} options={[['supplier', 'Supplier'], ['internal', 'Internal']]} />
+                    <small>{deliveredBy(L) === 'internal' ? "Direct's own truck: sales order only" : "The supplier delivers: on its PO too"}</small></div>}
                   {L.fulfil === 'delivery' && <label className="no-f no-grow">Site address <span className="req">*</span><AddressInput value={L.site || ''} onChange={(v) => setLoad(L.uid, { site: v })} onPick={(r) => setLoad(L.uid, { site: r.full })} placeholder="Street, suburb, postcode" ariaLabel={'Site address of load ' + L.n} /></label>}
                   <label className="no-f">{L.fulfil === 'delivery' ? 'Delivery date' : 'Pick-up date'}{o.kind === 'order' && <span className="req"> *</span>}<input type="date" value={L.date || ''} onChange={(e) => setLoad(L.uid, { date: e.target.value })} /></label>
                   <label className="no-f">Time<select value={L.time || 'Any time'} onChange={(e) => setLoad(L.uid, { time: e.target.value })}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>

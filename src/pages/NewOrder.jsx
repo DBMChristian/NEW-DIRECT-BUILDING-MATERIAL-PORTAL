@@ -144,13 +144,23 @@ export default function NewOrder() {
   /* the PO email: the supplier's addresses (Admin › Suppliers), where and when the PO's products go, and its lines */
   const emailOf = (P) => { const r = routes.find((x) => String(x.supplier_id) === String(P.supplier_id) && (x.portal || '') === (P.portal || '')) || routes.find((x) => String(x.supplier_id) === String(P.supplier_id));
     return { to: (r?.email_to || []).join(','), cc: (r?.email_cc || []).join(',') }; };
+  /* the form-added lines of a PO's materials on its loads (the impact charge once) */
+  const poExtra = (P, ks) => { const cats = new Set(ks.map((k) => lineOf(k)?.category)), lds = new Set(loads.filter((x) => ks.some((k) => qtyIn(x.items, k) > 0)).map((x) => x.uid));
+    return allCharges.filter((x) => !x.off && cats.has(x.cat) && (x.load === '' || lds.has(x.load))); };
   const poMail = (P, number, orderNo = '') => {
     const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), L = loads.find((x) => ks.some((k) => qtyIn(x.items, k) > 0)) || {};
     const d = L.date ? new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
     return { subject: (number || 'PO') + (orderNo ? ' · ' + orderNo : '') + ' · Direct Building Material · ' + (o.customer?.name || '') + (d ? ' · ' + d : ''),
       html: poEmailHtml({ po: number, supplier: P.supplier, portal: P.portal, order: orderNo || 'number given on placing', customer: o.customer?.name, deliverTo: P.deliverTo, site: L.site || headSite, date: d, time: L.time,
         fulfil: L.fulfil, contact: [o.contact_name, phoneOut(o)].filter(Boolean).join(' · '), note: P.notes,
-        lines: ks.map((k) => { const l = lineOf(k); return { code: l.code, name: lineName(l), qty: Number(P.items[k]), unit: l.unit }; }) }) };
+        lines: [...ks.map((k) => { const l = lineOf(k); return { code: l.code, name: lineName(l), qty: Number(P.items[k]), unit: l.unit }; }),
+          ...poExtra(P, ks).filter((x) => x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit }))],
+        /* the additional charges of its materials on its loads (the free bags with the lines), and their questions */
+        charges: poExtra(P, ks).filter((x) => !x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit === 'charge' ? '' : x.unit })),
+        questions: (() => { const cats = new Set(ks.map((k) => lineOf(k)?.category)), a = L.answers || {}, yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : ''), out = [];
+          if (cats.has('Concrete')) out.push({ title: 'Concrete', items: [['Pour', a.pour], ['Truck', a.truck], ['Spacing', a.spacing], ['Finish', a.message], ['Tester', yn(a.tester)], ['Coloured', yn(a.coloured)], ['Colour', a.coloured === 'yes' ? a.colour : '']] });
+          if (cats.has('Wafflepods') && L.fulfil === 'delivery') out.push({ title: 'Waffle pods', items: [['Location', (WP_LOCATIONS.find((x) => x[0] === a.location) || [, a.location])[1]], ['Driving time', a.hours ? a.hours + ' hours one way' : ''], ['Scrap pick-up', yn(a.scrap)], ['Trailer access', yn(a.trailer)], ['Gate code', a.gate]] });
+          return out; })() }) };
   };
   const setPoSend = (P, v) => { if (posHand) editPos((Ps) => Ps.map((x) => (x.uid === P.uid ? { ...x, send: v } : x))); else setPosSend((m) => ({ ...m, [P.uid]: v })); };
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
@@ -79,11 +80,11 @@ function MonthPicker({ value, onPick, onClose }) {
 const CATC = { Concrete: '#CA8A04', Wafflepods: '#7C3AED', Rediwall: '#EA580C', Reinforcement: '#92400E', Hebel: '#2563EB', Bricks: '#B91C1C', NRG: '#16A34A', Bluedeck: '#0891B2', Others: '#78716C' };
 function OrderCard({ g }) {
   return (
-    <div className="hm-card" style={{ '--c': CATC[String(g.loads[0].category).split(', ')[0]] || '#78716C' }}>
+    <Link to={'/orders/' + g.id} className="hm-card hm-link" style={{ '--c': CATC[String(g.loads[0].category).split(', ')[0]] || '#78716C' }}>
       <div className="hm-row"><b>{g.o.customer_name}</b><span className="hm-ref">{g.o.number}</span><span className="hm-amt">{cash(Number(g.o.total))}</span></div>
       {g.loads.map((l) => <div key={l.id} className="hm-meta"><span className="hm-cdot" style={{ background: CATC[String(l.category).split(', ')[0]] || '#78716C' }} />{l.category} · {l.fulfil === 'pickup' ? 'Pick-up' : 'Delivery'}{l.want_date ? ' · wants ' + dayName(new Date(l.want_date + 'T00:00:00')) : ''}{l.want_time && l.want_time !== 'Any time' ? ' ' + l.want_time : ''}</div>)}
       <div className="hm-row"><span className="hm-chip" style={{ marginLeft: 0, background: g.o.terms === 'account' ? '#FEF3C7' : '#F5F5F4', color: g.o.terms === 'account' ? '#92400E' : '#44403C' }}>{g.o.terms === 'account' ? 'Account' : 'COD'}</span></div>
-    </div>
+    </Link>
   );
 }
 
@@ -187,8 +188,8 @@ export default function Home() {
             <div className="hm-rbar"><span><b>{found} found</b> for "{q.trim()}"</span><span className="hm-esc">Esc or Clear goes back to Home</span></div>
                         <section className="hm-grp"><div className="hm-gh hm-gh-fill" style={{ background: '#B45309' }}>Orders <i>{hits.orders.length}</i></div>
               {!hits.orders.length && <div className="hm-hit hm-none">No order matches.</div>}
-              {hits.orders.map((x) => <div key={x.id} className="hm-hit"><div><b>{hl(x.customer_name)} <span className="hm-ref">{hl(x.number || '')}</span></b><small>{[x.their_po && 'PO ' + x.their_po, x.contact_phone, x.placed_at && new Date(x.placed_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })].filter(Boolean).join(' · ')}</small></div>
-                <span className={'hm-chip ' + (x.status === 'quote' ? 'hm-st-new' : x.status === 'cancelled' ? 'hm-st-closed' : 'hm-st-working')}>{x.status === 'quote' ? 'Quote' : x.status === 'cancelled' ? 'Cancelled' : 'Placed'}</span><span className="hm-amt">{cash(Number(x.total))}</span></div>)}</section>
+              {hits.orders.map((x) => <Link key={x.id} to={'/orders/' + x.id} className="hm-hit hm-link"><div><b>{hl(x.customer_name)} <span className="hm-ref">{hl(x.number || '')}</span></b><small>{[x.their_po && 'PO ' + x.their_po, x.contact_phone, x.placed_at && new Date(x.placed_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })].filter(Boolean).join(' · ')}</small></div>
+                <span className={'hm-chip ' + (x.status === 'quote' ? 'hm-st-new' : x.status === 'cancelled' ? 'hm-st-closed' : 'hm-st-working')}>{x.status === 'quote' ? 'Quote' : x.status === 'cancelled' ? 'Cancelled' : 'Placed'}</span><span className="hm-amt">{cash(Number(x.total))}</span></Link>)}</section>
             {hits.enquiries.length > 0 && <section className="hm-grp"><div className="hm-gh hm-gh-fill" style={{ background: '#0E7490' }}>Website enquiries <i>{hits.enquiries.length}</i></div>
               {hits.enquiries.map((e) => <div key={e.id} className="hm-hit"><div><b>{hl(e.name)}</b><small>{[e.product, e.location, e.phone].filter(Boolean).join(' · ')} · {ago(e.created_at)}</small></div><span className={'hm-chip hm-st-' + e.status}>{(ESTATUS.find((x) => x[0] === e.status) || [, e.status])[1]}</span>{e.taken_by_name && <span className="hm-with">With <b>{e.taken_by_name}</b></span>}<button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button></div>)}</section>}
           </div>

@@ -15,6 +15,7 @@ import AdminSuppliers from './pages/AdminSuppliers.jsx';
 import AdminCustomers from './pages/AdminCustomers.jsx';
 import AdminXero from './pages/AdminXero.jsx';
 import NewOrder from './pages/NewOrder.jsx';
+import OrderDetails from './pages/OrderDetails.jsx';
 
 export default function App() {
   const { session, staff, loading, signOut } = useAuth();
@@ -37,6 +38,7 @@ export default function App() {
         <Route index element={can('home') ? <Home /> : No} />
         <Route path="orders" element={can('orders') ? <Coming title="All Orders" sub="Every order" /> : No} />
         <Route path="orders/new" element={can('new_order') ? <NewOrder /> : No} />
+        <Route path="orders/:id" element={can('orders') || can('new_order') ? <OrderDetails /> : No} />
         <Route path="quotes" element={can('quotes') ? <Coming title="Quotes" sub="Follow up, win or lose" /> : No} />
         <Route path="warehouse" element={can('warehouse') ? <Coming title="Warehouse" sub="Stock, purchasing, receiving" /> : No} />
         <Route path="services" element={can('services') ? <Coming title="Services" sub="Installation and delivery" /> : No} />

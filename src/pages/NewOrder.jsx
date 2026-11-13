@@ -359,7 +359,9 @@ export default function NewOrder() {
 
   /* ---------- the draft: saved as you go ---------- */
   const busyRef = useRef(false);
+  const placedRef = useRef(false);
   const save = async () => {
+    if (placedRef.current) return o.id;   /* the order is placed: the draft is not saved over it */
     if (!o.customer && !lines.length) return o.id;
     if (busyRef.current) return o.id; busyRef.current = true;
     try {
@@ -367,7 +369,9 @@ export default function NewOrder() {
         contact_name: o.contact_name, contact_phone: phoneOut(o), email: o.email, their_po: o.their_po, instructions: o.instructions, subtotal: sub, gst, total, updated_at: new Date().toISOString() };
       let id = o.id;
       if (!id) { const r = await supabase.from('orders').insert({ ...head, created_by: staff.email, created_by_name: staff.name || staff.email.split('@')[0] }).select('id').single(); if (r.error) throw r.error; id = r.data.id; setO((x) => ({ ...x, id })); }
-      else { const r = await supabase.from('orders').update(head).eq('id', id).eq('status', 'draft'); if (r.error) throw r.error; }
+      else { const r = await supabase.from('orders').update(head).eq('id', id).eq('status', 'draft').select('id'); if (r.error) throw r.error;
+        /* placed (or no longer a draft): never touch it again from the form (13 Nov 2026) */
+        if (!r.data?.length) { placedRef.current = true; return id; } }
       for (const t of ['order_pos', 'order_loads', 'order_lines']) { const r = await supabase.from(t).delete().eq('order_id', id); if (r.error) throw r.error; }
       /* the products, then the loads and what is on them (and their charges), then the POs */
       const pl = await supabase.from('order_lines').insert(lines.map((l, i) => ({ order_id: id, product_id: l.product_id, code: l.code, name: lineName(l), custom: { eps: l.eps || {}, cut: l.cut || {}, desc: l.desc || '', base: l.baseName || l.name }, unit: l.unit, qty: l.qty, price: l.price, list_price: l.list, price_reason: l.reason, from_stock: stockKeys.includes(l.key), sort: i }))).select('id');
@@ -403,6 +407,7 @@ export default function NewOrder() {
     setBusy(true); setMsg(null);
     const id = await save();
     const { data, error } = await supabase.rpc('place_order', { p_id: id });
+    if (!error) placedRef.current = true;   /* no more draft saving: it would write over the placed order */
     setBusy(false);
     if (error) { setMsg({ bad: true, text: error.message }); return; }
     /* the PO emails, with their numbers (EmailJS, from orders@) */
@@ -424,7 +429,7 @@ export default function NewOrder() {
       const { data: row } = await supabase.from('xero_queue').select('kind, ref, party').eq('id', qid).maybeSingle();
       const what = (row?.kind === 'SO' ? 'Sales order ' : 'Purchase order ') + (row?.ref || '') + (row?.party ? ' (' + row.party + ')' : '');
       xero.push(b?.ok ? { ok: true, text: what + ' is in Xero.' } : { ok: false, text: what + ' not in Xero: ' + (b?.error || 'no answer') + '. It waits in Admin › Not yet in Xero.' }); }
-    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name, sent, failed, portal, xero, upload: o.upload_xero !== false });
+    nav('/orders/' + id, { state: { placed: { number: data.number, kind: o.kind, sent, failed, portal, xero, upload: o.upload_xero !== false } } });
   };
   /* Unfinished forms: the drafts that have a company or a total; Continue DRAFT-n opens the last one (as before) */
   const [drafts, setDrafts] = useState([]);
@@ -432,7 +437,7 @@ export default function NewOrder() {
   const loadDrafts = async () => { const { data } = await supabase.from('orders').select('id, customer_name, total, updated_at, created_by_name').eq('status', 'draft').or('customer_name.neq.,total.gt.0').order('updated_at', { ascending: false }).limit(40); setDrafts(data || []); };
   useEffect(() => { loadDrafts(); }, [saved]);
   const lastDraft = drafts.find((d) => d.id !== o.id);
-  const openDraft = async (id) => {
+  const openDraft = async (id) => { placedRef.current = false;
     setShowDrafts(false); setMsg(null);
     const [od, ls, lds, lis, ps, pis] = await Promise.all([supabase.from('orders').select('*, customer:customers(*)').eq('id', id).single(), supabase.from('order_lines').select('*').eq('order_id', id).order('sort'),
       supabase.from('order_loads').select('*').eq('order_id', id).order('sort'), supabase.from('order_load_items').select('*, order_loads!inner(order_id)').eq('order_loads.order_id', id),
@@ -454,19 +459,8 @@ export default function NewOrder() {
     setMsg({ text: 'DRAFT-' + d.id + ' opened.' });
   };
   const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
-  const restart = () => { setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', upload_xero: true, contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
+  const restart = () => { placedRef.current = false; setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', upload_xero: true, contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
 
-  if (done) return (
-    <>
-      <PageHeader title={done.kind === 'quote' ? 'QUOTE SAVED' : 'ORDER PLACED'} sub={done.number + ' · ' + done.customer + ' · ' + cash(done.total)} />
-      <div className="no-done"><div className="no-card"><h2>{done.number}</h2><p>{done.kind === 'quote' ? 'The quote is saved.' : 'The order is placed: it is on Home under Pending.' + (done.upload ? '' : ' Not uploaded to Xero (Upload to Xero: No).')}</p>
-        {(done.xero || []).map((x, i) => <p key={'x' + i} className={x.ok ? 'msg' : 'msg bad'}>{x.text}</p>)}
-        {(done.sent || []).length > 0 && <p className="msg">PO emails sent: {done.sent.join(' · ')}.</p>}
-        {(done.failed || []).length > 0 && <p className="msg bad">Not sent: {done.failed.join(' · ')}. Send them from the order page.</p>}
-        {(done.portal || []).map((x, i) => <p key={i} className={x.ok ? 'msg' : 'msg bad'}>{x.text}</p>)}
-        <div className="no-row"><button type="button" className="btn btn-red" onClick={restart}>New order</button><button type="button" className="btn" onClick={() => nav('/')}>Home</button></div></div></div>
-    </>
-  );
 
   /* the waffle pod location and driving time worked out from the site (as before), unless chosen by hand */
   const [wpNote, setWpNote] = useState('');

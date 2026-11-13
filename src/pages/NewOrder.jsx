@@ -663,15 +663,11 @@ export default function NewOrder() {
                   <label className="no-f">{L.fulfil === 'delivery' ? 'Delivery date' : 'Pick-up date'}{o.kind === 'order' && <span className="req"> *</span>}<input type="date" value={L.date || ''} onChange={(e) => setLoad(L.uid, { date: e.target.value })} /></label>
                   <label className="no-f">Time<select value={L.time || 'Any time'} onChange={(e) => setLoad(L.uid, { time: e.target.value })}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
                 </div>
-                {cats.includes('Wafflepods') && L.fulfil === 'delivery' && questions('Wafflepods', a, (ch) => setAns(L.uid, ch))}
-                {cats.includes('Concrete') && questions('Concrete', a, (ch) => setAns(L.uid, ch))}
                 <div className="no-tw"><table className="no-t"><thead><tr><th>On this load</th><th>Sold</th><th>On it</th><th>Move to</th></tr></thead><tbody>
                   {lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => (
                     <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                       <td><input className="no-price" value={qtyIn(L.items, l.key)} inputMode="decimal" onChange={(e) => setLoadQty(L.uid, l.key, Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)} aria-label={'Quantity of ' + l.name + ' on load ' + L.n} /></td>
                       <td><select className="no-move" value="" onChange={(e) => e.target.value && moveToLoad(l.key, L.uid, e.target.value)}><option value="">Move…</option>{loads.filter((x) => x.uid !== L.uid).map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}</select></td></tr>))}
-                  {ch.length > 0 && <tr className="no-chh"><td colSpan="4">ADDITIONAL CHARGES FOR THIS LOAD</td></tr>}
-                  {ch.map((x) => <tr key={x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}<small className="no-code">{x.code}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td><td colSpan="2">{x.off ? 'removed (Build SO)' : cash(r2(x.qty * x.price))}</td></tr>)}
                 </tbody></table></div>
               </div>); })}
             {lines.filter((l) => Math.abs(loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0) - l.qty) > 1e-6).map((l) => <p key={l.key} className="no-miss">{l.name}: {loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0)} of {l.qty} on loads.</p>)}

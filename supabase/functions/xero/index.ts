@@ -175,7 +175,9 @@ Deno.serve(async (req) => {
           email: String(c.EmailAddress || "").trim().toLowerCase(), phone: phone(c, "DEFAULT"), mobile: phone(c, "MOBILE"),
           street: [a.AddressLine1, a.AddressLine2].filter(Boolean).join(", "), suburb: String(a.City || ""), state: String(a.Region || ""), postcode: String(a.PostalCode || ""),
           account_number: String(c.AccountNumber || ""), abn: String(c.TaxNumber || ""), is_customer: c.IsCustomer === true, is_supplier: c.IsSupplier === true,
-          xero_status: String(c.ContactStatus || "ACTIVE"), in_xero: true, synced_at: now, updated_at: now }; });
+          xero_status: String(c.ContactStatus || "ACTIVE"), in_xero: true, synced_at: now, updated_at: now,
+          /* the contact's own sales terms in Xero (none: Xero's default for the organisation) */
+          xero_terms_day: c.PaymentTerms?.Sales?.Day ?? null, xero_terms_type: String(c.PaymentTerms?.Sales?.Type || "") }; });
         const { data: have } = await admin().from("customers").select("id, xero_contact_id");
         const known = new Set((have || []).map((x: any) => String(x.xero_contact_id)));
         const added = rows.filter((r) => !known.has(String(r.xero_contact_id))).length, updated = rows.length - added;

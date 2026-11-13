@@ -194,3 +194,4 @@ a.ad-row:hover{background:#FAFAF9}
 .cu-na{display:flex;gap:12px;margin-top:4px;align-items:center}
 .cu-note textarea,.cu-add textarea{width:100%;border:1px solid var(--soft);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;resize:vertical}
 .cu-add{display:flex;gap:10px;align-items:flex-start;max-width:760px}.cu-add .btn{height:36px;white-space:nowrap}
+.cu-terms{white-space:nowrap;font-size:12.5px}

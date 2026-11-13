@@ -9,6 +9,10 @@ import Icon from '../components/Icon.jsx';
    keeps on top: COD or account, the customer's price list, and the team's notes, shown on every order of theirs.
    Click a customer to see and write their notes. */
 const when = (t) => (t ? new Date(t).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+/* Xero's sales terms, in words: 30 / DAYSAFTERBILLMONTH is "30 days EOM" */
+const ord = (n) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
+const termsText = (c) => { const d = c.xero_terms_day, t = c.xero_terms_type; if (!t || d == null) return '';
+  return t === 'DAYSAFTERBILLDATE' ? d + ' days' : t === 'DAYSAFTERBILLMONTH' ? d + ' days EOM' : t === 'OFCURRENTMONTH' ? ord(d) + ' of the month' : t === 'OFFOLLOWINGMONTH' ? ord(d) + ' of next month' : d + ' ' + t.toLowerCase(); };
 async function xero(action, extra = {}) {
   const { data, error } = await supabase.functions.invoke('xero', { body: { action, ...extra } });
   if (error) { let m = error.message; try { const b = await error.context.json(); m = b.error || (b.contacts && b.contacts.error) || m; } catch { /* as it is */ } throw new Error(m); }
@@ -107,9 +111,9 @@ export default function AdminCustomers() {
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table cu-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>Price list</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
             <tbody>
-              {rows !== null && !list.length && <tr><td colSpan="6" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
+              {rows !== null && !list.length && <tr><td colSpan="7" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((c) => {
                 const cn = notes[c.id] || [];
                 return (
@@ -119,10 +123,11 @@ export default function AdminCustomers() {
                       <td><small className="cu-c">{c.email}</small><small className="cu-c">{c.mobile || c.phone}</small></td>
                       <td>{c.suburb}</td>
                       <td><select className="pp-pick" value={c.terms} disabled={!canEdit} onChange={(e) => setField(c, { terms: e.target.value })} aria-label={'Terms of ' + c.name}><option value="cod">COD</option><option value="account">Account</option></select></td>
+                      <td className="cu-terms">{termsText(c) || <span className="pp-muted">Xero's default</span>}</td>
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>
                     </tr>
-                    {open === c.id && <tr className="cu-open"><td colSpan="6"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
+                    {open === c.id && <tr className="cu-open"><td colSpan="7"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
                   </Fragment>
                 );
               })}

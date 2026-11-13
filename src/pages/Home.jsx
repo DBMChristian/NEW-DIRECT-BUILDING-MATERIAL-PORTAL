@@ -198,7 +198,8 @@ export default function Home() {
                 {enq !== null && !enq.length && <div className="hm-empty">No open enquiries. New ones from the website show here.</div>}
                 {(enq || []).map((e) => (
                   <div key={e.id} className="hm-card" style={{ '--c': e.status === 'new' ? '#0891B2' : '#94A3B8' }}>
-                    <div className="hm-row"><b>{e.name || 'No name'}</b><span className={'hm-chip ' + (e.status === 'new' ? 'hm-c-teal' : 'hm-c-indigo')}>{e.status === 'new' ? 'NEW' : (e.taken_by_name || 'WORKING').toUpperCase()} · {ago(e.created_at)}</span></div>
+                    <div className="hm-row"><b>{e.name || 'No name'}</b><span className={'hm-chip hm-st-' + e.status}>{(ESTATUS.find((x) => x[0] === e.status) || [, e.status])[1]}</span></div>
+                    <div className="hm-owner">{e.taken_by_name ? <>With <b>{e.taken_by_name}</b></> : 'Nobody has it yet'} · {ago(e.created_at)} ago</div>
                     <div className="hm-meta">{[e.product, e.site_address || e.location, e.phone].filter(Boolean).join(' · ')}</div>
                     {e.message && <div className="hm-msg">{e.message}</div>}
                     {e.attachment_url && <a className="hm-att" href={e.attachment_url} target="_blank" rel="noreferrer">Their plans ↗</a>}

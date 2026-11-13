@@ -203,7 +203,7 @@ export default function NewOrder() {
          FR-CRANE/REO; its name is the product's (13 Nov 2026) */
       .map((x) => (x.code === 'DELIVERY' && x.cat === 'Reinforcement' ? { ...x, code: 'FR-CRANE/REO' } : x))
       .filter((x) => { const p = byCode.get(String(x.code).toLowerCase()); return p && p.active; })
-      .map((x) => { const p = byCode.get(String(x.code).toLowerCase()); return { ...x, name: x.code === 'WPDEL' || x.code === 'WPSB' ? x.name : p.name || x.name, product_id: p.id }; })
+      .map((x) => { const p = byCode.get(String(x.code).toLowerCase()); return { ...x, name: x.code === 'WPDEL' || x.code === 'WPSB' ? x.name : p.name || x.name, product_id: p.id, asItem: p.sub_category !== 'additional_charge' }; })
       .map((x) => { const ov = over[L.uid + '|' + x.key] || {}; return { ...x, load: L.uid, list: x.price, price: ov.price ?? x.price, qty: ov.qty ?? x.qty, reason: ov.reason || '', off: !!ov.off }; });
     return { L, inLoad, cats, ch };
   }), [loads, lines, over, products, extraPrices, o.customer]);
@@ -359,7 +359,7 @@ export default function NewOrder() {
   const catDelivery = (c) => loads.some((L) => L.fulfil === 'delivery' && lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0));
   /* a function, not a component: the price box keeps its focus while typing */
   const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
-    <tr key={x.load + x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}<small className="no-code">{x.code}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
+    <tr key={x.load + x.key} className={(x.asItem ? 'no-autoi' : 'no-chr') + (x.off ? ' off' : '')}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
       <td className="r">{x.locked ? cash(x.price) : <><input className={'no-price' + (changed ? ' ch' : '')} value={x.price} disabled={x.off} inputMode="decimal" onChange={(e) => setCharge(x, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + x.name} />
         {changed && !x.off && <input className={'no-reason' + (x.reason.trim().length < 3 ? ' need' : '')} value={x.reason} onChange={(e) => setCharge(x, { reason: e.target.value })} placeholder="Reason for the price *" />}</>}</td>
       <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
@@ -478,8 +478,9 @@ export default function NewOrder() {
                         <td className="r"><b>{cash(r2(l.qty * l.price))}</b></td>
                         {profitCells(r2(l.qty * l.price), costOf(l), false)}
                         <td className="r"><button type="button" className="no-x" aria-label={'Remove ' + l.name} onClick={() => removeLine(l.key)}>×</button></td></tr>); })}
-                    {chs.length > 0 && <tr className="no-chh"><td colSpan="8">ADDITIONAL CHARGES <span>(from Build Load)</span></td></tr>}
-                    {chs.map((x) => chargeRow(x))}
+                    {chs.filter((x) => x.asItem).map((x) => chargeRow(x))}
+                    {chs.some((x) => !x.asItem) && <tr className="no-chh"><td colSpan="8">ADDITIONAL CHARGES <span>(from Build Load)</span></td></tr>}
+                    {chs.filter((x) => !x.asItem).map((x) => chargeRow(x))}
                   </tbody>
                 </table></div>
                 </>}
@@ -553,8 +554,9 @@ export default function NewOrder() {
                 <div className="no-sgh" style={{ background: HEAD[c] }}>{c}<b>{cash(r2(ls.reduce((t, l) => t + r2(l.qty * l.price), 0) + chs.reduce((t, x) => t + r2(x.qty * x.price), 0)))}</b></div>
                 <div className="no-ssh">Items</div>
                 {ls.map((l) => <div key={l.key} className="no-si"><span>{lineName(l)}<small>{l.code} · {Number(l.qty)} {l.unit} × {cash(l.price)}</small></span><b>{cash(r2(l.qty * l.price))}</b></div>)}
-                {chs.length > 0 && <><div className="no-ssh">Additional charges</div>
-                  {chs.map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
+                {chs.filter((x) => x.asItem).map((x) => <div key={x.load + x.key} className="no-si"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}
+                {chs.some((x) => !x.asItem) && <><div className="no-ssh">Additional charges</div>
+                  {chs.filter((x) => !x.asItem).map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
               </div>); })}</div>}
             {pos.length > 0 && <div className="no-what">{pos.map((P, i) => 'PO ' + (i + 1) + ' to ' + (P.supplier || '…').replace(' Pty Ltd', '')).join(' · ')}{stockKeys.length ? ' · from Penrith stock' : ''}</div>}
             <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>

@@ -675,3 +675,4 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-gate{display:flex;gap:6px;margin-top:4px}.no-gate input{flex:1;min-width:0;height:30px;border:1px solid #b9c0c8;border-radius:3px;padding:0 8px;font:inherit;font-size:13px}
 .no-gate .btn{height:30px;padding:0 10px}.no-gate .btn.on{background:linear-gradient(#fde4e0,#f6c9c2);border-color:#c8483a;color:#7f1d1d;font-weight:800}
 .no-sumlist{max-height:none;overflow:visible}
+.no-autoi td{background:#FBFAFF}.no-autoi.off td{color:#A8A29E;text-decoration:line-through}

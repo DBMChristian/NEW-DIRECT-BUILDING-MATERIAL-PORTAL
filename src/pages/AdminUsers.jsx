@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
+import AddPerson, { resetPassword } from '../components/AddPerson.jsx';
 
 /* Admin > Users (13 Nov 2026), laid out as OrderConcrete's with Direct's roles: tiles (can sign in, no login yet, needs a
    role, everyone), search, role chips with counts, people grouped by role with Show / Hide, select for a bulk sign-in
@@ -22,7 +23,6 @@ export default function AdminUsers() {
   const [open, setOpen] = useState({});
   const [sel, setSel] = useState({});
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ email: '', name: '', role: 'office' });
 
   const load = async () => { const { data, error } = await supabase.rpc('staff_overview'); if (error) setMsg({ bad: true, text: error.message }); setRows(data || []); };
   useEffect(() => { load(); }, []);
@@ -38,14 +38,6 @@ export default function AdminUsers() {
   const isOpen = (k) => !!q.trim() || open[k] !== false;
   const chosen = list.filter((x) => sel[x.email]);
 
-  const add = async (e) => {
-    e.preventDefault();
-    const email = form.email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return say(true, 'Enter a valid email.');
-    const { error } = await supabase.from('staff').insert({ email, name: form.name.trim(), role: form.role });
-    if (error) return say(true, /duplicate/i.test(error.message) ? email + ' is already on the list.' : error.message);
-    setForm({ email: '', name: '', role: 'office' }); setAdding(false); say(false, email + ' added. Use "Email sign-in link" to invite them.'); load();
-  };
   const save = async (email, patch) => { const { error } = await supabase.from('staff').update({ ...patch, updated_at: new Date().toISOString() }).eq('email', email); if (error) say(true, error.message); else load(); };
   const giveRole = async (x, r) => { if (!r) return; const { error } = await supabase.from('staff').insert({ email: x.email, name: x.name || '', role: r }); if (error) say(true, error.message); else { say(false, x.email + ' can now sign in as ' + ROLE[r] + '.'); load(); } };
   const rename = async (x) => { const name = window.prompt('Name for ' + x.email + ':', x.name || ''); if (name === null || name.trim() === x.name) return; save(x.email, { name: name.trim() }); };
@@ -54,6 +46,8 @@ export default function AdminUsers() {
     for (const email of emails) { const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: window.location.origin } }); if (error) bad.push(email + ': ' + error.message); else ok++; }
     say(!!bad.length, (ok ? 'Sign-in link emailed to ' + ok + (ok === 1 ? ' person' : ' people') + '. ' : '') + bad.join(' · '));
   };
+  const reset = async (x) => { if (!window.confirm('Give ' + (x.name || x.email) + ' a new temporary password' + ' and email it to them?')) return;
+    try { const r = await resetPassword(x); say(false, (x.name || x.email) + ': new temporary password ' + r.password + (r.emailed ? ', emailed to them.' : '. EmailJS is not set up: give it to them yourself.')); } catch (e) { say(true, e.message); } };
   const switchOff = async (emails) => { if (!window.confirm('Switch off ' + emails.length + (emails.length === 1 ? ' person' : ' people') + '? They stay on the list and can be switched back on.')) return;
     const { error } = await supabase.from('staff').update({ active: false, updated_at: new Date().toISOString() }).in('email', emails.filter((e) => e !== me.email)); if (error) say(true, error.message); else { setSel({}); load(); } };
 
@@ -77,18 +71,11 @@ export default function AdminUsers() {
           <div className="us-chips" role="group" aria-label="Roles">
             <button type="button" className={'us-chip' + (!role ? ' on' : '')} onClick={() => setRole('')}>All roles <b>{base.length}</b></button>
             {ROLES.map(([k, l]) => <button key={k} type="button" className={'us-chip' + (role === k ? ' on' : '')} onClick={() => setRole(role === k ? '' : k)}>{l} <b>{roleCount(k)}</b></button>)}
-            <button type="button" className="btn btn-red us-addbtn" onClick={() => setAdding(!adding)}>{adding ? 'Close' : '+ Add person'}</button>
+            <button type="button" className="btn btn-red us-addbtn" onClick={() => setAdding(true)}>+ Add person</button>
           </div>
-          {adding && (
-            <form className="us-add" onSubmit={add}>
-              <label>Email<input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@directbuildingmaterial.com.au" required /></label>
-              <label>Name<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="First name and initial" /></label>
-              <label>Role<select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>{ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-              <button type="submit" className="btn btn-red">Add</button>
-            </form>
-          )}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
+        {adding && <AddPerson onClose={() => setAdding(false)} onDone={(m) => { setAdding(false); setMsg(m); load(); }} />}
         <div className="us-card">
           <div className="us-top">
             <label className="us-all"><input type="checkbox" checked={!!list.length && chosen.length === list.filter((x) => x.on_list).length} onChange={(e) => setSel(e.target.checked ? Object.fromEntries(list.filter((x) => x.on_list).map((x) => [x.email, true])) : {})} /> SELECT ALL {list.length} SHOWN</label>
@@ -117,6 +104,7 @@ export default function AdminUsers() {
                       <td className="us-last">{x.last_sign_in ? when(x.last_sign_in) : <span className="pp-muted">Never</span>}</td>
                       <td className="r us-acts">
                         {x.on_list && <button type="button" className="link" onClick={() => rename(x)}>Rename</button>}
+                        {x.on_list && x.active && x.has_login && <button type="button" className="link" onClick={() => reset(x)}>Reset password</button>}
                         {x.on_list && x.active && <button type="button" className="link" onClick={() => invite([x.email])}>{x.has_login ? 'Sign-in link' : 'Invite'}</button>}
                         {x.on_list && x.email !== me.email && <button type="button" className="link" onClick={() => (x.active ? switchOff([x.email]) : save(x.email, { active: true }))}>{x.active ? 'Switch off' : 'Switch on'}</button>}
                       </td>

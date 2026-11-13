@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { configured } from './lib/supabase.js';
 import { useAuth } from './auth/AuthProvider.jsx';
 import SignIn from './pages/SignIn.jsx';
+import ChoosePassword from './pages/ChoosePassword.jsx';
+import { useState } from 'react';
 import Shell from './components/Shell.jsx';
 import Home from './pages/Home.jsx';
 import Coming from './pages/Coming.jsx';
@@ -14,9 +16,11 @@ import AdminXero from './pages/AdminXero.jsx';
 
 export default function App() {
   const { session, staff, loading, signOut } = useAuth();
+  const [pwDone, setPwDone] = useState(false);
   if (!configured) return <div className="centre"><div className="note">The portal is not set up yet: copy <b>.env.example</b> to <b>.env</b> and fill in the Supabase key.</div></div>;
   if (loading) return <div className="centre"><div className="spinner" aria-label="Loading" /></div>;
   if (!session) return <SignIn />;
+  if (session.user?.user_metadata?.must_change_password && !pwDone) return <ChoosePassword onDone={() => setPwDone(true)} />;
   if (!staff) return (
     <div className="centre"><div className="note">
       <b>{session.user.email}</b> is signed in, but has no staff access yet. Ask an admin to add you.

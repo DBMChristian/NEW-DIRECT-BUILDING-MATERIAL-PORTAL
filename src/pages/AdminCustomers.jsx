@@ -56,10 +56,31 @@ function History({ rows, lists, withName }) {
             {h.action === 'Changed' ? <><b>{FIELD[h.field] || h.field}</b>: <s>{showVal(h.field, h.old_value, lists)}</s> → <em>{showVal(h.field, h.new_value, lists)}</em></>
               : h.action.startsWith('Note') ? <><b>{h.action}</b>{h.action === 'Note edited' ? <>: <s>{h.old_value}</s> → <em>{h.new_value}</em></> : <>: <em>{h.new_value || h.old_value}</em></>}</>
               : <b>{h.action}</b>}
+            {h.reason && <span className="cu-h-why">Reason: {h.reason}</span>}
           </span>
         </li>
       ))}
     </ol>
+  );
+}
+
+/* the reason a change needs (COD or account, On hold, Credit limit, Price list) */
+function ReasonDialog({ p, lists, onDone }) {
+  const [r, setR] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const f = Object.keys(p.ch)[0];
+  const go = async () => { if (r.trim().length < 3) { setErr('Type the reason (at least a few words).'); return; } setBusy(true); const e = await p.save(r.trim()); setBusy(false); if (e) setErr(e); else onDone(); };
+  return (
+    <div className="cu-modal" role="dialog" aria-modal="true" aria-labelledby="cu-rt">
+      <div className="cu-mbox">
+        <h3 id="cu-rt">Why the change?</h3>
+        <p><b>{p.c.name}</b> · {FIELD[f]}: <s>{showVal(f, p.from == null ? null : String(p.from), lists)}</s> → <em>{showVal(f, p.ch[f] == null ? null : String(p.ch[f]), lists)}</em></p>
+        <label>Reason <span className="nv-req">*</span><textarea autoFocus rows={3} value={r} onChange={(e) => { setR(e.target.value); setErr(''); }} placeholder="e.g. Siraj approved an account, 30 days EOM" /></label>
+        {err && <p className="msg bad">{err}</p>}
+        <div className="cu-mact"><button type="button" className="btn" onClick={() => onDone(true)} disabled={busy}>Cancel</button><button type="button" className="btn btn-red" onClick={go} disabled={busy || r.trim().length < 3}>{busy ? 'Saving…' : 'Save change'}</button></div>
+      </div>
+    </div>
   );
 }
 
@@ -134,7 +155,15 @@ export default function AdminCustomers() {
     loadStatus(); setBusy('');
   };
   const reconnect = async () => { setBusy('connect'); try { const r = await xero('connect', { return_to: window.location.origin + '/admin/customers' }); window.location.href = r.url; } catch (e) { setMsg({ bad: true, text: e.message }); setBusy(''); } };
-  const setField = async (c, ch) => { const { error } = await supabase.from('customers').update({ ...ch, updated_at: new Date().toISOString() }).eq('id', c.id); if (error) setMsg({ bad: true, text: error.message }); else setRows((rs) => rs.map((r) => (r.id === c.id ? { ...r, ...ch } : r))); };
+  const [pending, setPending] = useState(null);
+  const [ver, setVer] = useState(0);   /* redraws the boxes back to the saved value when a change is cancelled */
+  const setField = (c, ch) => {
+    const f = Object.keys(ch)[0];
+    setPending({ c, ch, from: c[f], save: async (reason) => {
+      const { error } = await supabase.from('customers').update({ ...ch, change_reason: reason, updated_at: new Date().toISOString() }).eq('id', c.id);
+      if (error) return error.message;
+      setRows((rs) => rs.map((r) => (r.id === c.id ? { ...r, ...ch } : r))); return null; } });
+  };
 
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -155,6 +184,7 @@ export default function AdminCustomers() {
           {status?.connected && <button type="button" className="link" onClick={reconnect} disabled={!!busy}>Reconnect</button>}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
+        {pending && <ReasonDialog p={pending} lists={lists} onDone={(cancel) => { setPending(null); if (cancel) setVer((v) => v + 1); }} />}
         <div className="pp-filters">
           <input type="search" className="pp-search" value={q} onChange={(e) => { setQ(e.target.value); setN(100); }} placeholder="Search a name, email, phone, suburb or ABN…" aria-label="Search customers" />
           <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="customers">Customers</option><option value="notes">With notes</option><option value="hold">On hold</option><option value="suppliers">Suppliers</option><option value="archived">Archived or gone from Xero</option><option value="all">Everyone</option></select>
@@ -169,7 +199,7 @@ export default function AdminCustomers() {
               {list.slice(0, n).map((c) => {
                 const cn = notes[c.id] || [];
                 return (
-                  <Fragment key={c.id}>
+                  <Fragment key={c.id + ':' + ver}>
                     <tr className={'cu-row' + (open === c.id ? ' on' : '') + (c.in_xero && c.xero_status !== 'ARCHIVED' ? '' : ' pp-gone')}>
                       <td><button type="button" className="cu-name" onClick={() => setOpen(open === c.id ? null : c.id)} aria-expanded={open === c.id}><span>{open === c.id ? '▾' : '▸'}</span><b>{c.name}</b></button>{c.on_hold && <small className="cu-holdtag">ON HOLD</small>}{c.xero_status === 'ARCHIVED' && <small className="pp-tag">Archived in Xero</small>}</td>
                       <td className="cu-em">{c.email ? <a href={'mailto:' + c.email}>{c.email}</a> : <span className="pp-muted">—</span>}</td>

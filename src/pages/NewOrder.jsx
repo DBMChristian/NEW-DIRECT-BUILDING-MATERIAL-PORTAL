@@ -62,7 +62,7 @@ export default function NewOrder() {
 
   useEffect(() => { (async () => {
     const ps = []; let f = 0;
-    for (;;) { const { data } = await supabase.from('products').select('id, code, name, unit, category, sub_category, xero_sales_price, price_builder, price_installer, price_online, in_xero, active').range(f, f + 999); ps.push(...(data || [])); if (!data || data.length < 1000) break; f += 1000; }
+    for (;;) { const { data } = await supabase.from('products').select('id, code, name, unit, category, sub_category, xero_sales_price, xero_cost_price, price_builder, price_installer, price_online, in_xero, active').range(f, f + 999); ps.push(...(data || [])); if (!data || data.length < 1000) break; f += 1000; }
     setProducts(ps);
     const ex = {}; f = 0;
     for (;;) { const { data } = await supabase.from('product_prices').select('product_id, list_id, price').range(f, f + 999); (data || []).forEach((r) => { (ex[r.product_id] = ex[r.product_id] || {})[r.list_id] = Number(r.price); }); if (!data || data.length < 1000) break; f += 1000; }
@@ -171,6 +171,13 @@ export default function NewOrder() {
     if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id); if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
       return [...Ps, { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: { [k0]: 1 } }]; }); }
   };
+  /* cost from Xero (the product's purchase price), and the profit on it */
+  const prodById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
+  const unitCost = (x) => Number((x.product_id ? prodById.get(x.product_id) : byCode.get(String(x.code || '').toLowerCase()))?.xero_cost_price || 0);
+  const costOf = (x) => r2(unitCost(x) * (Number(x.qty) || 0));
+  const pct = (profit, amount) => (amount > 0 ? Math.round((profit / amount) * 1000) / 10 : 0);
+  const profitCells = (amount, cost, off) => { if (off) return <><td className="r no-cost">—</td><td className="r">—</td><td className="r">—</td></>; const pr = r2(amount - cost);
+    return <><td className="r no-cost">{cost ? cash(cost) : <span className="no-nocost" title="No cost in Xero">—</span>}</td><td className={'r no-pf' + (pr < 0 ? ' neg' : '')}>{cash(pr)}</td><td className={'r no-pf' + (pr < 0 ? ' neg' : '')}>{pct(pr, amount)}%</td></>; };
   const setCut = (l, ch) => { const cut = { ...(l.cut || {}), ...ch }, q = cutBad(cut) ? 0 : cutSqm(cutWidth(l), Number(cut.mm), Number(cut.n));
     setLine(l.key, { cut, qty: q });
     if (loadsHand) setLoadsHand((Ls) => { const has = Ls.filter((L) => L.items[l.key] != null); if (has.length !== 1) return Ls; return Ls.map((L) => (L === has[0] ? { ...L, items: { ...L.items, [l.key]: q } } : L)); }); };
@@ -334,6 +341,7 @@ export default function NewOrder() {
       <td className="r">{x.locked ? cash(x.price) : <><input className={'no-price' + (changed ? ' ch' : '')} value={x.price} disabled={x.off} inputMode="decimal" onChange={(e) => setCharge(x, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + x.name} />
         {changed && !x.off && <input className={'no-reason' + (x.reason.trim().length < 3 ? ' need' : '')} value={x.reason} onChange={(e) => setCharge(x, { reason: e.target.value })} placeholder="Reason for the price *" />}</>}</td>
       <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
+      {profitCells(r2(x.qty * x.price), costOf(x), x.off)}
       <td className="r">{!x.locked && <button type="button" className="no-x" aria-label={(x.off ? 'Put back ' : 'Remove ') + x.name} onClick={() => setCharge(x, { off: !x.off })}>{x.off ? '↺' : '×'}</button>}</td></tr>); };
   const lineOf = (k) => lines.find((l) => l.key === k);
   const soCats = CATS.filter((c) => lines.some((l) => l.category === c));
@@ -426,11 +434,11 @@ export default function NewOrder() {
             {!lines.length && <p className="no-sub">Nothing yet: pick a material or search, then press Add.</p>}
             {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
               <div key={c} className="no-grp">
-                <div className="no-gh" style={{ background: HEAD[c] }}>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small></div>
+                <div className="no-gh" style={{ background: HEAD[c] }}>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small>{(() => { const cs = r2(ls.reduce((t, l) => t + costOf(l), 0) + chs.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sum - cs); return <span className="no-ghp">Profit {cash(pr)} · {pct(pr, sum)}%</span>; })()}</div>
                 {c === 'Wafflepods' && catDelivery(c) && questions('Wafflepods', catAnswers(c), (ch) => setCatAns(c, ch))}
                 {c === 'Concrete' && questions('Concrete', catAnswers(c), (ch) => setCatAns(c, ch))}
                 <div className="no-tw"><table className="no-t">
-                  <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th /></tr></thead>
+                  <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th className="r">Cost</th><th className="r">Profit $</th><th className="r">Profit %</th><th /></tr></thead>
                   <tbody>
                     {ls.map((l) => { const changed = Math.abs(l.price - l.list) >= 0.005; return (
                       <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code} · {l.unit}</small>
@@ -446,13 +454,13 @@ export default function NewOrder() {
                         <td className="r"><input className={'no-price' + (changed ? ' ch' : '')} value={l.price} inputMode="decimal" onChange={(e) => setLine(l.key, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + l.name} />
                           {changed && <><small className="no-was">list {cash(l.list)} <button type="button" className="link" onClick={() => setLine(l.key, { price: l.list, reason: '' })}>↺</button></small><input className={'no-reason' + (l.reason.trim().length < 3 ? ' need' : '')} value={l.reason} onChange={(e) => setLine(l.key, { reason: e.target.value })} placeholder="Reason for the price *" /></>}</td>
                         <td className="r"><b>{cash(r2(l.qty * l.price))}</b></td>
+                        {profitCells(r2(l.qty * l.price), costOf(l), false)}
                         <td className="r"><button type="button" className="no-x" aria-label={'Remove ' + l.name} onClick={() => removeLine(l.key)}>×</button></td></tr>); })}
-                    {chs.length > 0 && <tr className="no-chh"><td colSpan="5">ADDITIONAL CHARGES <span>(from Build Load)</span></td></tr>}
+                    {chs.length > 0 && <tr className="no-chh"><td colSpan="8">ADDITIONAL CHARGES <span>(from Build Load)</span></td></tr>}
                     {chs.map((x) => chargeRow(x))}
                   </tbody>
                 </table></div>
               </div>); })}
-            <label className="no-f">Special instructions<input value={o.instructions} onChange={(e) => setO({ ...o, instructions: e.target.value })} placeholder="Gate code, access, anything the driver or supplier should know" /></label>
           </section>
           </>}
 
@@ -518,6 +526,7 @@ export default function NewOrder() {
             {loadCharges.map(({ L, cats, inLoad, ch }) => <div key={L.uid} className="no-sl"><span><i style={{ background: COLOR[cats[0]] || '#78716C' }} />Load {L.n} · {cats.join(', ')} · {L.fulfil === 'delivery' ? 'delivery' : 'pick-up'}{L.date ? ' ' + new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric' }) : ''}</span></div>)}
             {pos.length > 0 && <div className="no-what">{pos.map((P, i) => 'PO ' + (i + 1) + ' to ' + (P.supplier || '…').replace(' Pty Ltd', '')).join(' · ')}{stockKeys.length ? ' · from Penrith stock' : ''}</div>}
             <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
+            {(() => { const cs = r2(lines.reduce((t, l) => t + costOf(l), 0) + allCharges.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sub - cs); return <div className="no-prof"><div className="no-sl"><span>Cost (Xero)</span><b>{cash(cs)}</b></div><div className={'no-sl' + (pr < 0 ? ' neg' : '')}><span>Profit</span><b>{cash(pr)} · {pct(pr, sub)}%</b></div></div>; })()}
             {o.customer?.on_hold && <div className="no-alert"><b>On hold:</b> this customer is on hold. Check before placing.</div>}
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}
             {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}

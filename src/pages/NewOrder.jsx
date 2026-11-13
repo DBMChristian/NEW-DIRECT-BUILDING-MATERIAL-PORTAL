@@ -332,7 +332,7 @@ export default function NewOrder() {
       if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
       if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
     for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = effAns(L), no = (f) => a[f] == null || String(a[f]).trim() === '';
-      if (cs.has('Wafflepods') && L.fulfil === 'delivery') {
+      if (cs.has('Wafflepods') && (L.fulfil === 'delivery' || pos.some((P) => poFulfil(P) === 'delivery' && Object.keys(P.items).some((k) => Number(P.items[k]) > 0 && qtyIn(L.items, k) > 0 && lineOf(k)?.category === 'Wafflepods')))) {
         if (no('location')) return 'Build PO: waffle pods, choose the location.';
         if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Build PO: waffle pods, enter the driving time.';
         if (no('scrap')) return 'Build PO: waffle pods, scrap pick-up Yes or No.';
@@ -669,7 +669,7 @@ export default function NewOrder() {
                 </div>
                 {(() => { const cats = new Set(Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).map((k) => lineOf(k)?.category)); return <>
                   {cats.has('Concrete') && questions('Concrete', catAnswers('Concrete'), (ch) => setCatAns('Concrete', ch))}
-                  {cats.has('Wafflepods') && catDelivery('Wafflepods') && questions('Wafflepods', catAnswers('Wafflepods'), (ch) => setCatAns('Wafflepods', ch))}</>; })()}
+                  {cats.has('Wafflepods') && (poFulfil(P) === 'delivery' || catDelivery('Wafflepods')) && questions('Wafflepods', catAnswers('Wafflepods'), (ch) => setCatAns('Wafflepods', ch))}</>; })()}
                 <div className="no-poem">{P.send === false ? <span>Not sent: kept with the order only.</span> : (() => { const em = emailOf(P); return em.to ? <span>{P.portal ? <>Into <b>{P.portal}</b> (items only) and email</> : 'Email'} to <b>{em.to}</b>{em.cc ? <> · CC {em.cc}</> : null}</span> : <span className="no-warn">No email for {P.supplier || 'this supplier'}: add it in Admin › Suppliers.</span>; })()}
                   <button type="button" className="btn" onClick={() => setPreview(poMail(P, ''))}>Preview email</button></div>
                 <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th className="r">Unit cost</th><th className="r">Cost</th><th>Move to</th></tr></thead><tbody>

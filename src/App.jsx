@@ -21,13 +21,15 @@ export default function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<Home />} />
-        <Route path="orders" element={<Coming title="Orders" sub="Every order" />} />
+        <Route path="orders" element={<Coming title="All Orders" sub="Every order" />} />
         <Route path="orders/new" element={<Coming title="New order" sub="Quote or place an order" />} />
         <Route path="quotes" element={<Coming title="Quotes" sub="Follow up, win or lose" />} />
         <Route path="warehouse" element={<Coming title="Warehouse" sub="Stock, purchasing, receiving" />} />
         <Route path="services" element={<Coming title="Services" sub="Installation and delivery" />} />
         <Route path="admin" element={<Coming title="Admin" sub="Products, prices, customers, users" />} />
         <Route path="notifications" element={<Coming title="Notifications" sub="What needs you" />} />
+        <Route path="reminders" element={<Coming title="Reminders" sub="What you need to do" />} />
+        <Route path="request" element={<Coming title="New request" sub="Report a problem or ask for a change" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

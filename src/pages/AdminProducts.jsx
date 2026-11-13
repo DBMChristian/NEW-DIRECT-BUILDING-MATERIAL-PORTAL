@@ -131,7 +131,7 @@ export default function AdminProducts() {
     const t = q.trim().toLowerCase();
     return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero : !r.in_xero)) && (showOff || r.active) && (!cat || (cat === '-' ? !r.category : r.category === cat)) && (!type || r.sub_category === type)
       && (!t || (r.code + ' ' + r.name + ' ' + r.description + ' ' + r.category).toLowerCase().includes(t)));
-  }, [rows, q, cat, show, type]);
+  }, [rows, q, cat, show, type, showOff]);
   const groups = useMemo(() => [...CATEGORIES, ''].map((c) => ({ key: c || '-', label: c || 'No category yet', rows: list.filter((r) => (r.category || '') === c) })).filter((g) => g.rows.length), [list]);
   const isOpen = (k) => !!q.trim() || !!open[k];
   const last = status?.last_sync;

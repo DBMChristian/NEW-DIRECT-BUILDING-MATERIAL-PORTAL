@@ -13,6 +13,38 @@ const dayName = (d) => d.toLocaleDateString('en-AU', { weekday: 'short', day: 'n
 const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');   /* the local day (not UTC) */
 const startOf = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 
+/* an enquiry in full: who, how to reach them, what they want, their plans, who has it, its status and notes */
+const ESTATUS = [['new', 'New'], ['working', 'Working on it'], ['quoted', 'Quoted'], ['closed', 'Closed (lost)']];
+function EnquiryPanel({ e, me, onClose, onSaved }) {
+  const [status, setStatus] = useState(e.status);
+  const [note, setNote] = useState(e.note || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const save = async (patch) => { setBusy(true); setErr(''); const { error } = await supabase.from('enquiries').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', e.id); setBusy(false); if (error) setErr(error.message); else onSaved(); };
+  const mine = e.taken_by === me.email;
+  return (
+    <div className="ap-wrap" role="dialog" aria-modal="true" aria-labelledby="en-t">
+      <div className="ap">
+        <header className="ap-h"><div><h3 id="en-t">{e.name || 'No name'}</h3><p>Website enquiry · {new Date(e.created_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })} · {ago(e.created_at)} ago</p></div><button type="button" className="ap-x" onClick={onClose} aria-label="Close">×</button></header>
+        <section className="ap-s en-d">
+          {[['Phone', e.phone && <a href={'tel:' + e.phone.replace(/[^0-9+]/g, '')}>{e.phone}</a>], ['Email', e.email && <a href={'mailto:' + e.email}>{e.email}</a>], ['Site address', e.site_address || e.location], ['Product', e.product], ['How warm', e.temp]].filter((x) => x[1]).map(([k, v]) => <div key={k}><small>{k}</small><span>{v}</span></div>)}
+        </section>
+        {e.message && <section className="ap-s"><h4>What they wrote</h4><p className="en-msg">{e.message}</p></section>}
+        {e.attachment_url && <section className="ap-s"><h4>Their plans</h4><a className="hm-btn" href={e.attachment_url} target="_blank" rel="noreferrer">Open the file ↗</a></section>}
+        <section className="ap-s">
+          <h4>Who has it</h4>
+          <p className="en-who">{e.taken_by_name ? <><b>{e.taken_by_name}</b>{mine ? ' (you)' : ''}</> : 'Nobody yet'}</p>
+          {!mine && <button type="button" className="hm-btn hm-red-btn" disabled={busy} onClick={() => save({ status: e.status === 'new' ? 'working' : e.status, taken_by: me.email, taken_by_name: me.name || me.email.split('@')[0] })}>{e.taken_by ? 'Take it over' : "I'll take it"}</button>}
+          <label className="ap-f">STATUS<select value={status} onChange={(ev) => setStatus(ev.target.value)} className="en-sel">{ESTATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+          <label className="ap-f">NOTES<textarea rows={4} value={note} onChange={(ev) => setNote(ev.target.value)} placeholder="Called, left a message; quote sent…" className="en-note" /></label>
+          {err && <p className="msg bad">{err}</p>}
+          <div className="ap-foot"><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn btn-red" disabled={busy || (status === e.status && note === (e.note || ''))} onClick={() => save({ status, note })}>Save</button></div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function Col({ dot, title, sub, n, nColor, children, label }) {
   return (
     <section className="hm-col" aria-label={label || title}>
@@ -36,6 +68,7 @@ export default function Home() {
   const [enq, setEnq] = useState(null);
   const [codAll, setCodAll] = useState(false);
   const [hits, setHits] = useState(null);
+  const [openEnq, setOpenEnq] = useState(null);
 
   const load = async () => {
     const c = await supabase.from('customers').select('id, name, email, phone, mobile, xero_awaiting_payment, xero_awaiting_approval, xero_overdue, credit_limit, terms').eq('terms', 'cod').gt('xero_awaiting_payment', 0).order('xero_awaiting_payment', { ascending: false });
@@ -62,7 +95,7 @@ export default function Home() {
   const codTotal = useMemo(() => (cod || []).reduce((a, c) => a + Number(c.xero_awaiting_payment || 0), 0), [cod]);
   const codOver = useMemo(() => (cod || []).reduce((a, c) => a + Number(c.xero_overdue || 0), 0), [cod]);
   const newEnq = (enq || []).filter((e) => e.status === 'new').length;
-  const take = async (e) => { const { error } = await supabase.from('enquiries').update({ status: 'working', taken_by: staff.email, taken_by_name: staff.name || staff.email.split('@')[0], updated_at: new Date().toISOString() }).eq('id', e.id); if (!error) load(); };
+  const take = async (e) => { const { error } = await supabase.from('enquiries').update({ status: e.status === 'new' ? 'working' : e.status, taken_by: staff.email, taken_by_name: staff.name || staff.email.split('@')[0], updated_at: new Date().toISOString() }).eq('id', e.id); if (!error) load(); };
   const shift = (n) => { const d = new Date(day); d.setDate(d.getDate() + n * (range === 'week' ? 7 : 1)); setDay(d); };
   const today = startOf(new Date()), tomorrow = new Date(today.getTime() + 86400000);
   const isDay = (d) => range === 'day' && day.getTime() === d.getTime();
@@ -74,6 +107,7 @@ export default function Home() {
   return (
     <>
       <PageHeader title="HOME" sub={new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) + ' · 0 to book · ' + cash(codTotal) + ' COD owing · ' + newEnq + ' new enquir' + (newEnq === 1 ? 'y' : 'ies')} />
+      {openEnq && <EnquiryPanel e={openEnq} me={staff} onClose={() => setOpenEnq(null)} onSaved={() => { setOpenEnq(null); load(); }} />}
       <div className="hm">
         <div className="hm-bar">
           <label className={'hm-search' + (q ? ' on' : '')}>
@@ -101,7 +135,7 @@ export default function Home() {
               {hits.customers.map((c) => <div key={c.id} className="hm-hit"><div><b>{hl(c.name)}</b><small>{[c.email, c.mobile || c.phone].filter(Boolean).join(' · ')} · {c.terms === 'account' ? 'Account' : 'COD'}{c.credit_limit != null ? ' · limit ' + cash(c.credit_limit) : ''}</small></div>
                 {Number(c.xero_awaiting_payment) + Number(c.xero_awaiting_approval) > 0 && <span className="hm-chip hm-c-red">{cash(Number(c.xero_awaiting_payment) + Number(c.xero_awaiting_approval))} owed</span>}</div>)}</section>}
             {hits.enquiries.length > 0 && <section className="hm-grp"><div className="hm-gh">Website enquiries <i>{hits.enquiries.length}</i></div>
-              {hits.enquiries.map((e) => <div key={e.id} className="hm-hit"><div><b>{hl(e.name)}</b><small>{[e.product, e.location, e.phone].filter(Boolean).join(' · ')} · {ago(e.created_at)}</small></div><span className={'hm-chip ' + (e.status === 'new' ? 'hm-c-teal' : 'hm-c-indigo')}>{e.status === 'new' ? 'NEW' : (e.taken_by_name || 'WORKING').toUpperCase()}</span></div>)}</section>}
+              {hits.enquiries.map((e) => <div key={e.id} className="hm-hit"><div><b>{hl(e.name)}</b><small>{[e.product, e.location, e.phone].filter(Boolean).join(' · ')} · {ago(e.created_at)}</small></div><span className={'hm-chip ' + (e.status === 'new' ? 'hm-c-teal' : 'hm-c-indigo')}>{e.status === 'new' ? 'NEW' : (e.taken_by_name || 'WORKING').toUpperCase()}</span><button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button></div>)}</section>}
           </div>
         ) : (
           <div className="hm-cols">
@@ -133,7 +167,7 @@ export default function Home() {
                     <div className="hm-meta">{[e.product, e.site_address || e.location, e.phone].filter(Boolean).join(' · ')}</div>
                     {e.message && <div className="hm-msg">{e.message}</div>}
                     {e.attachment_url && <a className="hm-att" href={e.attachment_url} target="_blank" rel="noreferrer">Their plans ↗</a>}
-                    <div className="hm-row hm-acts">{e.status === 'new' && <button type="button" className="hm-btn hm-red-btn" onClick={() => take(e)}>I'll take it</button>}{e.phone && <a className="hm-btn" href={'tel:' + e.phone.replace(/[^0-9+]/g, '')}>Call</a>}</div>
+                    <div className="hm-row hm-acts">{e.taken_by !== staff.email && <button type="button" className="hm-btn hm-red-btn" onClick={() => take(e)}>{e.taken_by ? 'Take it over' : "I'll take it"}</button>}<button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button>{e.phone && <a className="hm-btn" href={'tel:' + e.phone.replace(/[^0-9+]/g, '')}>Call</a>}</div>
                   </div>
                 ))}
               </div>

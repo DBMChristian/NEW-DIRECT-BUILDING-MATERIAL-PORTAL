@@ -116,11 +116,11 @@ export default function Home() {
     const t = q.trim(); if (t.length < 2) { setHits(null); return; }
     const like = '%' + t.replace(/[%_]/g, '') + '%';
     const h = setTimeout(async () => {
-      const [c, e] = await Promise.all([
-        supabase.from('customers').select('id, name, email, phone, mobile, terms, credit_limit, xero_awaiting_payment, xero_awaiting_approval').or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},mobile.ilike.${like},abn.ilike.${like}`).limit(20),
+      /* Home's search is for orders (13 Nov 2026): the portal's orders once New Order is built, and website enquiries */
+      const [e] = await Promise.all([
         supabase.from('enquiries').select('*').or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like},product.ilike.${like},site_address.ilike.${like}`).limit(20),
       ]);
-      setHits({ customers: c.data || [], enquiries: e.data || [], orders: [], invoices: [] });
+      setHits({ customers: [], enquiries: e.data || [], orders: [], invoices: [] });
     }, 200);
     return () => clearTimeout(h);
   }, [q]);
@@ -145,7 +145,7 @@ export default function Home() {
         <div className="hm-bar">
           <label className={'hm-search' + (q ? ' on' : '')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
-            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setQ(''); }} placeholder="Search a company, order, invoice, PO or phone…" aria-label="Search" />
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setQ(''); }} placeholder="Search an order: number, company, site, PO or phone…" aria-label="Search orders" />
             {q && <button type="button" className="hm-btn" onClick={() => setQ('')}>Clear</button>}
           </label>
           <div className="hm-date">
@@ -162,12 +162,10 @@ export default function Home() {
         {hits ? (
           <div className="hm-results">
             <div className="hm-rbar"><span><b>{found} found</b> for "{q.trim()}"</span><span className="hm-esc">Esc or Clear goes back to Home</span></div>
-            {!found && <div className="hm-empty">Nothing found. Orders and invoices join the search once they are in the portal.</div>}
-            {hits.customers.length > 0 && <section className="hm-grp"><div className="hm-gh">Customers <i>{hits.customers.length}</i></div>
-              {hits.customers.map((c) => <div key={c.id} className="hm-hit"><div><b>{hl(c.name)}</b><small>{[c.email, c.mobile || c.phone].filter(Boolean).join(' · ')} · {c.terms === 'account' ? 'Account' : 'COD'}{c.credit_limit != null ? ' · limit ' + cash(c.credit_limit) : ''}</small></div>
-                {Number(c.xero_awaiting_payment) + Number(c.xero_awaiting_approval) > 0 && <span className="hm-chip hm-c-red">{cash(Number(c.xero_awaiting_payment) + Number(c.xero_awaiting_approval))} owed</span>}</div>)}</section>}
-            {hits.enquiries.length > 0 && <section className="hm-grp"><div className="hm-gh">Website enquiries <i>{hits.enquiries.length}</i></div>
-              {hits.enquiries.map((e) => <div key={e.id} className="hm-hit"><div><b>{hl(e.name)}</b><small>{[e.product, e.location, e.phone].filter(Boolean).join(' · ')} · {ago(e.created_at)}</small></div><span className={'hm-chip ' + (e.status === 'new' ? 'hm-c-teal' : 'hm-c-indigo')}>{e.status === 'new' ? 'NEW' : (e.taken_by_name || 'WORKING').toUpperCase()}</span><button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button></div>)}</section>}
+                        <section className="hm-grp"><div className="hm-gh hm-gh-fill" style={{ background: '#B45309' }}>Orders <i>{hits.orders.length}</i></div>
+              {!hits.orders.length && <div className="hm-hit hm-none">No orders yet: orders show here once New Order is built.</div>}</section>
+            {hits.enquiries.length > 0 && <section className="hm-grp"><div className="hm-gh hm-gh-fill" style={{ background: '#0E7490' }}>Website enquiries <i>{hits.enquiries.length}</i></div>
+              {hits.enquiries.map((e) => <div key={e.id} className="hm-hit"><div><b>{hl(e.name)}</b><small>{[e.product, e.location, e.phone].filter(Boolean).join(' · ')} · {ago(e.created_at)}</small></div><span className={'hm-chip hm-st-' + e.status}>{(ESTATUS.find((x) => x[0] === e.status) || [, e.status])[1]}</span>{e.taken_by_name && <span className="hm-with">With <b>{e.taken_by_name}</b></span>}<button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button></div>)}</section>}
           </div>
         ) : (
           <div className="hm-cols">

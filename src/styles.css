@@ -435,3 +435,9 @@ a.ad-row:hover{background:#FAFAF9}
 .hm-ch-fill{border-bottom:0;color:#fff}
 .hm-ch-fill b{color:#fff}.hm-ch-fill small{color:rgba(255,255,255,.88)}
 .hm-n-fill{background:#fff!important;font-weight:800}
+
+/* search results in the column colours (13 Nov 2026) */
+.hm-results{max-width:none}
+.hm-gh-fill{color:#fff;border-bottom:0}.hm-gh-fill i{background:#fff;color:var(--ink)}
+.hm-none{color:#57534E;font-size:13px;justify-content:center;padding:18px}
+.hm-with{font-size:12px;color:#57534E;white-space:nowrap}.hm-with b{color:var(--ink)}

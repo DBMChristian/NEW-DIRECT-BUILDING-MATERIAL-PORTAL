@@ -5,6 +5,9 @@ const SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID || 'Service_DirectBuildi
 const TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'template_958phqr';
 const KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'CPotC9kqZTuvNMe4F';
 export const emailReady = Boolean(SERVICE && TEMPLATE && KEY);
+/* the address the email's "Sign in to the portal" button opens: the portal's real address (VITE_PORTAL_URL in .env and
+   Netlify), never the computer it was sent from (localhost would not open for them) */
+export const PORTAL_URL = (import.meta.env.VITE_PORTAL_URL || 'https://portal.directbuildingmaterial.com.au').replace(/\/$/, '');   /* the domain moves to Netlify later (13 Nov 2026) */
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* the login details, in Direct's look: the dark header with the red DIRECT mark, the email, the password, the button */
@@ -22,7 +25,8 @@ function loginHtml({ email, name, password, reset, portal }) {
     + '<tr><td style="background:#1E1A17;color:#D6D3D1;font-size:11px;padding:12px 24px;text-align:center">Direct Building Material · 16 Cassola Place, Penrith NSW 2750</td></tr></table></td></tr></table></div>';
 }
 export async function sendLoginEmail({ email, name, password, reset }) {
-  const portal = window.location.origin;
+  if (!PORTAL_URL) throw new Error('the portal has no web address yet (VITE_PORTAL_URL): the email would link to this computer');
+  const portal = PORTAL_URL;
   const r = await fetch('https://api.emailjs.com/api/v1.0/email/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: {
       to_email: email, cc_email: '', bcc_email: '', subject: reset ? 'Your new Direct portal password' : 'Your Direct portal login',

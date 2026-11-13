@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
 import AddPerson, { resetPassword, removeLogin } from '../components/AddPerson.jsx';
+import { PORTAL_URL } from '../lib/emailjs.js';
 
 /* Admin > Users (13 Nov 2026), laid out as OrderConcrete's with Direct's roles: tiles (can sign in, no login yet, needs a
    role, everyone), search, role chips with counts, people grouped by role with Show / Hide, select for a bulk sign-in
@@ -47,7 +48,7 @@ export default function AdminUsers() {
   const rename = async (x) => { const name = window.prompt('Name for ' + x.email + ':', x.name || ''); if (name === null || name.trim() === x.name) return; save(x.email, { name: name.trim() }); };
   const invite = async (emails) => {
     let ok = 0, bad = [];
-    for (const email of emails) { const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: window.location.origin } }); if (error) bad.push(email + ': ' + error.message); else ok++; }
+    for (const email of emails) { const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: PORTAL_URL } });   /* the invite opens the real portal, not this computer */ if (error) bad.push(email + ': ' + error.message); else ok++; }
     say(!!bad.length, (ok ? 'Sign-in link emailed to ' + ok + (ok === 1 ? ' person' : ' people') + '. ' : '') + bad.join(' · '));
   };
   const reset = async (x) => { if (!window.confirm('Give ' + (x.name || x.email) + ' a new temporary password' + ' and email it to them?')) return;

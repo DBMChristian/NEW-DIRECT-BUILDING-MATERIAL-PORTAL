@@ -3,19 +3,20 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import Logo from './Logo.jsx';
 import Icon from './Icon.jsx';
+import { pagesOf, defaultPages } from '../lib/pages.js';
 
 /* The frame every page sits in. The menu is laid out as OrderConcrete's (13 Nov 2026): each item an icon, its name and a
    line under it; the work at the top; Notifications, Reminders and New request at the bottom; then who is signed in
    ("Viewing as", which an admin can switch to see the portal as another role), their email, Log out and settings. */
 const ROLE = { admin: 'Admin', office: 'Office', warehouse: 'Warehouse', driver: 'Driver' };
 const ITEMS = [
-  { to: '/', icon: 'home', label: 'Home', sub: 'Today and upcoming', end: true, roles: ['admin', 'office', 'warehouse', 'driver'] },
-  { to: '/orders/new', icon: 'plus', label: 'New Order', sub: 'Quote or place an order', roles: ['admin', 'office'] },
-  { to: '/quotes', icon: 'quotes', label: 'Quotes', sub: 'Follow up, win or lose', roles: ['admin', 'office'] },
-  { to: '/orders', icon: 'list', label: 'All Orders', sub: 'Every order', end: true, roles: ['admin', 'office', 'warehouse'] },
-  { to: '/warehouse', icon: 'warehouse', label: 'Warehouse', sub: 'Stock, purchasing, receiving', roles: ['admin', 'office', 'warehouse'] },
-  { to: '/services', icon: 'services', label: 'Services', sub: 'Installation and delivery', roles: ['admin', 'office', 'driver'] },
-  { to: '/admin', icon: 'admin', label: 'Admin', sub: 'Products, prices, customers, users', roles: ['admin'] },
+  { to: '/', icon: 'home', label: 'Home', sub: 'Today and upcoming', end: true, page: 'home' },
+  { to: '/orders/new', icon: 'plus', label: 'New Order', sub: 'Quote or place an order', page: 'new_order' },
+  { to: '/quotes', icon: 'quotes', label: 'Quotes', sub: 'Follow up, win or lose', page: 'quotes' },
+  { to: '/orders', icon: 'list', label: 'All Orders', sub: 'Every order', end: true, page: 'orders' },
+  { to: '/warehouse', icon: 'warehouse', label: 'Warehouse', sub: 'Stock, purchasing, receiving', page: 'warehouse' },
+  { to: '/services', icon: 'services', label: 'Services', sub: 'Installation and delivery', page: 'services' },
+  { to: '/admin', icon: 'admin', label: 'Admin', sub: 'Products, prices, customers, users', page: 'admin' },
 ];
 const BOTTOM = [
   { to: '/notifications', icon: 'bell', label: 'Notifications', sub: 'What needs you' },
@@ -39,11 +40,13 @@ export default function Shell() {
   const [viewAs, setViewAs] = useState(staff.role);
   const [picking, setPicking] = useState(false);
   const role = staff.role === 'admin' ? viewAs : staff.role;
+  /* viewing as another role shows that role's pages; otherwise this person's own */
+  const pages = staff.role === 'admin' && viewAs !== 'admin' ? defaultPages(viewAs) : pagesOf(staff);
   return (
     <div className="shell">
       <nav className="menu" aria-label="Main menu">
         <Logo small />
-        <div className="menu-items">{ITEMS.filter((it) => it.roles.includes(role)).map((it) => <Item key={it.to} it={it} />)}</div>
+        <div className="menu-items">{ITEMS.filter((it) => pages.includes(it.page)).map((it) => <Item key={it.to} it={it} />)}{!ITEMS.some((it) => pages.includes(it.page)) && <p className="menu-none">No pages yet. Ask an admin.</p>}</div>
         <div className="menu-bottom">
           {BOTTOM.map((it) => <Item key={it.to} it={it} />)}
           <div className="viewas">

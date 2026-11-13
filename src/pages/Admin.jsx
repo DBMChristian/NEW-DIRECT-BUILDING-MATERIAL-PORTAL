@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
+import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -25,7 +26,9 @@ function Section({ title, sub, children }) {
 }
 
 export default function Admin() {
-  const [staff, setStaff] = useState(null);
+  const { staff } = useAuth();
+  const isAdmin = staff.role === 'admin';
+  const [staffN, setStaff] = useState(null);
   const [products, setProducts] = useState(null);
   const [suppliers, setSuppliers] = useState(null);
   const [customers, setCustomers] = useState(null);
@@ -39,16 +42,20 @@ export default function Admin() {
     <>
       <PageHeader title="ADMIN" sub="Products, prices, customers and who can sign in. Changes here take effect in the portal straight away." />
       <div className="ad">
+        {isAdmin && <>
         <Section title="Products and prices" sub="What Direct sells, what each customer pays, and the suppliers it buys from.">
-          <Row to="/admin/products" icon="box" title="Products and price lists" sub="Every product from Xero, with the builder, installer and retail prices" n={products} unit="products" />
-          <Row to="/admin/suppliers" icon="truck" title="Suppliers" sub="Who Direct orders from, through which portal, and the emails (To and CC)" n={suppliers} unit="suppliers" />
+          {isAdmin && <Row to="/admin/products" icon="box" title="Products and price lists" sub="Every product from Xero, with the builder, installer and retail prices" n={products} unit="products" />}
+          {isAdmin && <Row to="/admin/suppliers" icon="truck" title="Suppliers" sub="Who Direct orders from, through which portal, and the emails (To and CC)" n={suppliers} unit="suppliers" />}
         </Section>
+        </>}
         <Section title="Customers" sub="Who Direct sells to, their account details and the notes the team keeps on them.">
           <Row to="/admin/customers" icon="building" title="Customers and notes" sub="Every Xero contact, COD or account, their price list, and the notes shown on every order" n={customers} unit="customers" />
         </Section>
+        {isAdmin && <>
         <Section title="People" sub="Who can sign in to the portal, and what each of them sees.">
-          <Row to="/admin/users" icon="users" title="Users" sub="Add people, set roles, switch access on or off" n={staff} unit="active" />
+          {isAdmin && <Row to="/admin/users" icon="users" title="Users" sub="Add people, set roles, switch access on or off" n={staffN} unit="active" />}
         </Section>
+        </>}
         <Section title="Xero" sub="Invoices and purchase orders going to Xero, and anything that failed to go.">
           <Row to="/admin/xero" icon="sync" title="Not yet in Xero" sub="Sales orders and purchase orders waiting to go, creating, updating or deleting, with Sync now" n={queued} unit="waiting" />
         </Section>

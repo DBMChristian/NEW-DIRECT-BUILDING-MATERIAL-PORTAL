@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { emailReady, sendLoginEmail, tempPassword } from '../lib/emailjs.js';
 import Icon from './Icon.jsx';
+import { PAGES, defaultPages, sameSet } from '../lib/pages.js';
 
 /* "Add a person", as OrderConcrete's (13 Nov 2026): their details, a role (Direct's four), and a portal login now with a
    temporary password, emailed to them by EmailJS. They choose their own password the first time they sign in. */
@@ -33,6 +34,10 @@ export default function AddPerson({ person, myEmail, onClose, onDone }) {
   const editing = !!person, parts = String(person?.name || '').trim().split(/\s+/);
   const [f, setF] = useState(editing ? { email: person.email, first: parts[0] || '', last: parts.slice(1).join(' '), mobile: person.mobile || '', role: person.role || 'office' } : { email: '', first: '', last: '', mobile: '', role: 'office' });
   const [login, setLogin] = useState(!editing);
+  const [pages, setPages] = useState(editing && Array.isArray(person.pages) ? person.pages : defaultPages(editing ? person.role || 'office' : 'office'));
+  const [own, setOwn] = useState(editing && Array.isArray(person.pages));   /* ticked by hand: a role change leaves them */
+  const pickRole = (r) => { setF((x) => ({ ...x, role: r })); if (!own) setPages(defaultPages(r)); };
+  const tick = (k) => { setOwn(true); setPages((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k])); };
   const [active, setActive] = useState(editing ? person.active !== false : true);
   const [pw, setPw] = useState(tempPassword());
   const [mail, setMail] = useState(emailReady);
@@ -44,7 +49,8 @@ export default function AddPerson({ person, myEmail, onClose, onDone }) {
     if (!f.first.trim()) { setErr('Enter their first name.'); return; }
     setBusy(true); setErr('');
     const name = [f.first.trim(), f.last.trim()].filter(Boolean).join(' ');
-    const row = { name, role: f.role, mobile: f.mobile.trim(), ...(editing && person.email !== myEmail ? { active } : {}) };
+    const ordered = PAGES.map((p) => p[0]).filter((k) => pages.includes(k));
+    const row = { name, role: f.role, mobile: f.mobile.trim(), pages: sameSet(ordered, defaultPages(f.role)) ? null : ordered, ...(editing && person.email !== myEmail ? { active } : {}) };
     const r = editing ? await supabase.from('staff').update({ ...row, updated_at: new Date().toISOString() }).eq('email', email) : await supabase.from('staff').insert({ email, ...row });
     if (r.error) { setBusy(false); setErr(/duplicate/i.test(r.error.message) ? email + ' is already on the list.' : r.error.message); return; }
     let note = editing ? name + ' saved.' : name + ' added as ' + ROLE_CARDS.find((x) => x[0] === f.role)[1] + '.';
@@ -73,11 +79,18 @@ export default function AddPerson({ person, myEmail, onClose, onDone }) {
           <div className="ap-roles" role="radiogroup" aria-label="Role">
             {ROLE_CARDS.map(([k, l, d, ic]) => (
               <label key={k} className={'ap-role' + (f.role === k ? ' on' : '')}>
-                <input type="radio" name="ap-role" checked={f.role === k} onChange={() => setF({ ...f, role: k })} />
+                <input type="radio" name="ap-role" checked={f.role === k} onChange={() => pickRole(k)} />
                 <span className="ap-ri"><Icon name={ic} size={16} /></span><span className="ap-rt"><b>{l}</b><small>{d}</small></span><span className="ap-rc" aria-hidden="true">{f.role === k ? '✓' : ''}</span>
               </label>
             ))}
           </div>
+        </section>
+        <section className="ap-s">
+          <h4><span>3</span>Pages</h4><p className="ap-sub">What they can open. Ticked by the role; change any of them for this person.</p>
+          <div className="ap-pages">{PAGES.map(([k, l, d]) => (
+            <label key={k} className={'ap-pg' + (pages.includes(k) ? ' on' : '')}><input type="checkbox" checked={pages.includes(k)} onChange={() => tick(k)} /><span><b>{l}</b><small>{d}</small></span></label>))}</div>
+          {own && !sameSet(pages, defaultPages(f.role)) && <button type="button" className="link ap-reset" onClick={() => { setOwn(false); setPages(defaultPages(f.role)); }}>Back to the {ROLE_CARDS.find((r) => r[0] === f.role)[1]} pages</button>}
+          {f.role !== 'admin' && pages.includes('admin') && <p className="ap-warn">They can open Admin, but only an Admin can change things there.</p>}
         </section>
         <section className="ap-s">
           <label className="ap-check"><input type="checkbox" checked={login} onChange={(e) => setLogin(e.target.checked)} /> {editing && person.has_login ? 'GIVE THEM A NEW TEMPORARY PASSWORD' : 'GIVE THEM A PORTAL LOGIN NOW'}</label>

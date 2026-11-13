@@ -7,6 +7,7 @@ import { useState } from 'react';
 import Shell from './components/Shell.jsx';
 import Home from './pages/Home.jsx';
 import Coming from './pages/Coming.jsx';
+import { pagesOf } from './lib/pages.js';
 import Admin from './pages/Admin.jsx';
 import AdminUsers from './pages/AdminUsers.jsx';
 import AdminProducts from './pages/AdminProducts.jsx';
@@ -27,21 +28,23 @@ export default function App() {
       <p><button type="button" className="btn" onClick={signOut}>Sign out</button></p>
     </div></div>
   );
+  const can = (k) => pagesOf(staff).includes(k);
+  const No = <Coming title="No access" sub="This page is not one of yours. Ask an admin if you need it." />;
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={<Home />} />
-        <Route path="orders" element={<Coming title="All Orders" sub="Every order" />} />
-        <Route path="orders/new" element={<Coming title="New order" sub="Quote or place an order" />} />
-        <Route path="quotes" element={<Coming title="Quotes" sub="Follow up, win or lose" />} />
-        <Route path="warehouse" element={<Coming title="Warehouse" sub="Stock, purchasing, receiving" />} />
-        <Route path="services" element={<Coming title="Services" sub="Installation and delivery" />} />
-        <Route path="admin" element={staff.role === 'admin' ? <Admin /> : <Navigate to="/" replace />} />
-        <Route path="admin/users" element={staff.role === 'admin' ? <AdminUsers /> : <Navigate to="/" replace />} />
-        <Route path="admin/products" element={staff.role === 'admin' ? <AdminProducts /> : <Navigate to="/" replace />} />
-        <Route path="admin/customers" element={['admin', 'office'].includes(staff.role) ? <AdminCustomers /> : <Navigate to="/" replace />} />
-        <Route path="admin/xero" element={['admin', 'office'].includes(staff.role) ? <AdminXero /> : <Navigate to="/" replace />} />
-        <Route path="admin/suppliers" element={staff.role === 'admin' ? <AdminSuppliers /> : <Navigate to="/" replace />} />
+        <Route index element={can('home') ? <Home /> : No} />
+        <Route path="orders" element={can('orders') ? <Coming title="All Orders" sub="Every order" /> : No} />
+        <Route path="orders/new" element={can('new_order') ? <Coming title="New order" sub="Quote or place an order" /> : No} />
+        <Route path="quotes" element={can('quotes') ? <Coming title="Quotes" sub="Follow up, win or lose" /> : No} />
+        <Route path="warehouse" element={can('warehouse') ? <Coming title="Warehouse" sub="Stock, purchasing, receiving" /> : No} />
+        <Route path="services" element={can('services') ? <Coming title="Services" sub="Installation and delivery" /> : No} />
+        <Route path="admin" element={can('admin') ? <Admin /> : No} />
+        <Route path="admin/users" element={can('admin') && staff.role === 'admin' ? <AdminUsers /> : No} />
+        <Route path="admin/products" element={can('admin') && staff.role === 'admin' ? <AdminProducts /> : No} />
+        <Route path="admin/customers" element={can('admin') ? <AdminCustomers /> : No} />
+        <Route path="admin/xero" element={can('admin') ? <AdminXero /> : No} />
+        <Route path="admin/suppliers" element={can('admin') && staff.role === 'admin' ? <AdminSuppliers /> : No} />
         <Route path="notifications" element={<Coming title="Notifications" sub="What needs you" />} />
         <Route path="reminders" element={<Coming title="Reminders" sub="What you need to do" />} />
         <Route path="request" element={<Coming title="New request" sub="Report a problem or ask for a change" />} />

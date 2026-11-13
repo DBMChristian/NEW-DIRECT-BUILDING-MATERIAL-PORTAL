@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
     if (!supabase) return;
     if (!session) { setStaff(null); setLoading(false); return; }
     setLoading(true);
-    supabase.from('staff').select('email, name, role, active').eq('email', session.user.email.toLowerCase()).maybeSingle()
+    supabase.from('staff').select('email, name, role, active, pages').eq('email', session.user.email.toLowerCase()).maybeSingle()
       .then(({ data }) => { setStaff(data && data.active ? data : null); setLoading(false); });
   }, [session]);
 

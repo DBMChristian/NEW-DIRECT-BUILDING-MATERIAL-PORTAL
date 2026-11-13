@@ -142,3 +142,13 @@ a.ad-row:hover{background:#FAFAF9}
 .pp-grp button span{color:var(--red);width:12px}.pp-grp small{font-weight:600;text-transform:none;letter-spacing:0;color:var(--muted)}
 .pp-lh{white-space:nowrap}.pp-lh span{margin-right:2px}
 .pp-lbtn{border:0;background:none;color:#A8A29E;cursor:pointer;font-size:12px;padding:0 2px}.pp-lbtn:hover{color:var(--red)}
+
+/* category colours (13 Nov 2026) */
+.pp-grp td{background:color-mix(in srgb,var(--cc) 10%,#fff)!important;border-left:4px solid var(--cc)}
+.pp-grp button{color:color-mix(in srgb,var(--cc) 70%,#1E1A17)}
+.pp-dot-c{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--cc)}
+.pp-table tbody tr:not(.pp-grp) td:first-child{border-left:4px solid var(--cc)}
+/* the search and filters in the same size as the table */
+.pp-filters,.pp-filters input,.pp-filters select,.pp-filters .btn{font-size:13px}
+.pp-search,.pp-filters select,.pp-filters .btn{height:34px}
+.pp-count{font-size:13px}

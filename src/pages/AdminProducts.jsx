@@ -8,6 +8,9 @@ import Icon from '../components/Icon.jsx';
    price lists (builder, installer, retail) beside Xero's price. Category, unit and the three prices are Direct's: typed
    here, saved when you leave the box, never changed by a sync. */
 const CATEGORIES = ['Concrete', 'Wafflepods', 'Rediwall', 'Reinforcement', 'Hebel', 'Bricks', 'NRG', 'Bluedeck', 'Others'];
+/* each category's colour, used on its section, its rows and its dropdown */
+const CAT_COLOR = { Concrete: '#CA8A04', Wafflepods: '#7C3AED', Rediwall: '#EA580C', Reinforcement: '#92400E', Hebel: '#2563EB', Bricks: '#B91C1C', NRG: '#16A34A', Bluedeck: '#0891B2', Others: '#78716C' };
+const catColor = (c) => CAT_COLOR[c] || '#DB2777';   /* no category yet: pink, so it stands out */
 const TYPES = [['item', 'Item'], ['additional_charge', 'Additional charge']];
 const money = (v) => (v === null || v === undefined || v === '' ? '' : '$' + Number(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const when = (t) => (t ? new Date(t).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
@@ -56,7 +59,7 @@ function Pick({ p, field, options, empty, onSaved }) {
   const [saving, setSaving] = useState(false);
   const save = async (v) => { setSaving(true); const { error } = await supabase.from('products').update({ [field]: v, updated_at: new Date().toISOString() }).eq('id', p.id); setSaving(false); if (!error) onSaved(p.id, { [field]: v }); };
   return (
-    <select className={'pp-pick' + (p[field] ? '' : ' pp-unset') + (saving ? ' pp-saving' : '')} value={p[field] || ''} onChange={(e) => save(e.target.value)} aria-label={field.replace('_', ' ') + ' of ' + p.code}>
+    <select style={field === 'category' && p[field] ? { borderLeft: '4px solid ' + catColor(p[field]) } : undefined} className={'pp-pick' + (p[field] ? '' : ' pp-unset') + (saving ? ' pp-saving' : '')} value={p[field] || ''} onChange={(e) => save(e.target.value)} aria-label={field.replace('_', ' ') + ' of ' + p.code}>
       {empty && <option value="">{empty}</option>}
       {options.map((o) => (Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o}>{o}</option>))}
     </select>
@@ -149,10 +152,10 @@ export default function AdminProducts() {
               {rows !== null && !list.length && <tr><td colSpan={10 + lists.length} className="pp-empty">{rows.length ? 'No product matches.' : status?.connected ? 'No products yet: press Sync from Xero.' : 'No products yet: connect Xero, then Sync from Xero.'}</td></tr>}
               {groups.map((g) => (
                 <Fragment key={g.key}>
-                  <tr className="pp-grp"><td colSpan={10 + lists.length}><button type="button" onClick={() => setShut({ ...shut, [g.key]: !shut[g.key] })} aria-expanded={!shut[g.key]}><span>{shut[g.key] ? '▸' : '▾'}</span> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
+                  <tr className="pp-grp" style={{ '--cc': catColor(g.key === '-' ? '' : g.key) }}><td colSpan={10 + lists.length}><button type="button" onClick={() => setShut({ ...shut, [g.key]: !shut[g.key] })} aria-expanded={!shut[g.key]}><span>{shut[g.key] ? '▸' : '▾'}</span><i className="pp-dot-c" /> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
                   {!shut[g.key] && <>
                 {g.rows.map((p) => (
-                <tr key={p.id} className={p.in_xero ? '' : 'pp-gone'}>
+                <tr key={p.id} className={p.in_xero ? '' : 'pp-gone'} style={{ '--cc': catColor(p.category) }}>
                   <td className="pp-code">{p.code}</td>
                   <td><b>{p.name}</b>{p.description && p.description !== p.name ? <small>{p.description}</small> : null}{!p.in_xero && <small className="pp-tag">No longer in Xero</small>}</td>
                   <td><Pick p={p} field="category" options={CATEGORIES} empty="Choose…" onSaved={patch} /></td>

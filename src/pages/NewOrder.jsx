@@ -46,7 +46,7 @@ export default function NewOrder() {
   const [extraPrices, setExtraPrices] = useState({});
   const [routes, setRoutes] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
-  const [o, setO] = useState({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] });
+  const [o, setO] = useState({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', upload_xero: true, contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] });
   const [lines, setLines] = useState([]);          /* { key, product_id, code, name, unit, category, qty, price, list, reason } */
   const [loadsHand, setLoadsHand] = useState(null); /* null: one load per material by itself; else the loads as arranged */
   const [loadInfo, setLoadInfo] = useState({});    /* the automatic loads' day, site, questions, by material */
@@ -306,7 +306,7 @@ export default function NewOrder() {
     if (!o.customer && !lines.length) return o.id;
     if (busyRef.current) return o.id; busyRef.current = true;
     try {
-      const head = { kind: o.kind, customer_id: o.customer?.id || null, customer_name: o.customer?.name || '', terms: o.terms || 'cod', price_list: o.price_list || 'builder', site_street: o.site_street, site_suburb: o.site_suburb, delivery_date: o.delivery_date || null, booking_time: o.booking_time, sms_confirm: o.sms, plans: o.plans,
+      const head = { kind: o.kind, customer_id: o.customer?.id || null, customer_name: o.customer?.name || '', terms: o.terms || 'cod', price_list: o.price_list || 'builder', site_street: o.site_street, site_suburb: o.site_suburb, delivery_date: o.delivery_date || null, booking_time: o.booking_time, sms_confirm: o.sms, plans: o.plans, upload_xero: o.upload_xero !== false,
         contact_name: o.contact_name, contact_phone: phoneOut(o), email: o.email, their_po: o.their_po, instructions: o.instructions, subtotal: sub, gst, total, updated_at: new Date().toISOString() };
       let id = o.id;
       if (!id) { const r = await supabase.from('orders').insert({ ...head, created_by: staff.email, created_by_name: staff.name || staff.email.split('@')[0] }).select('id').single(); if (r.error) throw r.error; id = r.data.id; setO((x) => ({ ...x, id })); }
@@ -349,16 +349,24 @@ export default function NewOrder() {
     if (error) { setMsg({ bad: true, text: error.message }); return; }
     /* the PO emails, with their numbers (EmailJS, from orders@) */
     const sent = [], failed = [];
-    for (const x of data.pos || []) { const P = pos[x.sort]; if (!P) continue; const em = emailOf(P), m = poMail(P, x.number, data.number);
+    for (const x of (data.pos || []).filter((y) => y.send)) { const P = pos[x.sort]; if (!P) continue; const em = emailOf(P), m = poMail(P, x.number, data.number);
       try { await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); sent.push(x.number + ' to ' + P.supplier); }
       catch (e) { failed.push(x.number + ' to ' + P.supplier + ': ' + e.message); } }
     /* each PO set to Yes goes into its supplier's portal (OrderConcrete, OrderPods, OrderSteel): Direct's items only */
     const portal = [];
-    for (const x of data.pos || []) { const P = pos[x.sort]; if (!P || !P.portal) continue;
+    for (const x of (data.pos || []).filter((y) => y.send)) { const P = pos[x.sort]; if (!P || !P.portal) continue;
       const r = await supabase.functions.invoke('portal-po', { body: { action: 'send', order_id: x.id } });
       let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
       portal.push(b?.sent ? { ok: true, text: x.number + ' is in ' + P.portal + ' as ' + b.order_id } : { ok: false, text: x.number + ' not in ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : '') }); }
-    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name, sent, failed, portal });
+    /* Upload to Xero: the sales order and each PO, now (a failure stays in Admin › Not yet in Xero with its reason) */
+    const xero = [];
+    for (const qid of data.xero || []) {
+      const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } });
+      let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
+      const { data: row } = await supabase.from('xero_queue').select('kind, ref, party').eq('id', qid).maybeSingle();
+      const what = (row?.kind === 'SO' ? 'Sales order ' : 'Purchase order ') + (row?.ref || '') + (row?.party ? ' (' + row.party + ')' : '');
+      xero.push(b?.ok ? { ok: true, text: what + ' is in Xero.' } : { ok: false, text: what + ' not in Xero: ' + (b?.error || 'no answer') + '. It waits in Admin › Not yet in Xero.' }); }
+    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name, sent, failed, portal, xero, upload: o.upload_xero !== false });
   };
   /* Unfinished forms: the drafts that have a company or a total; Continue DRAFT-n opens the last one (as before) */
   const [drafts, setDrafts] = useState([]);
@@ -377,7 +385,7 @@ export default function NewOrder() {
       const cu = l.custom || {}; return { key: kk, product_id: l.product_id, code: l.code, name: cu.base || l.name, baseName: cu.base || l.name, eps: cu.eps || {}, cut: cu.cut || {}, desc: cu.desc || '', unit: l.unit, category: p?.category || 'Others', qty: Number(l.qty), price: Number(l.price), list: Number(l.list_price ?? l.price), reason: l.price_reason || '' }; });
     const site = String(d.site_street || '') + (d.site_suburb ? ', ' + d.site_suburb : '');
     setO({ id: d.id, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: digits8(d.contact_phone), mobile: true,
-      email: d.email, their_po: d.their_po, instructions: d.instructions, site_street: d.site_street, site_suburb: d.site_suburb, delivery_date: d.delivery_date || '', booking_time: d.booking_time || '', sms: d.sms_confirm, plans: d.plans || [] });
+      email: d.email, upload_xero: d.upload_xero !== false, their_po: d.their_po, instructions: d.instructions, site_street: d.site_street, site_suburb: d.site_suburb, delivery_date: d.delivery_date || '', booking_time: d.booking_time || '', sms: d.sms_confirm, plans: d.plans || [] });
     setLines(L2);
     setLoadsHand((lds.data || []).map((L, i) => ({ uid: key(), n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
       items: Object.fromEntries((lis.data || []).filter((x) => x.load_id === L.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
@@ -388,12 +396,13 @@ export default function NewOrder() {
     setMsg({ text: 'DRAFT-' + d.id + ' opened.' });
   };
   const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
-  const restart = () => { setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
+  const restart = () => { setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', upload_xero: true, contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
 
   if (done) return (
     <>
       <PageHeader title={done.kind === 'quote' ? 'QUOTE SAVED' : 'ORDER PLACED'} sub={done.number + ' · ' + done.customer + ' · ' + cash(done.total)} />
-      <div className="no-done"><div className="no-card"><h2>{done.number}</h2><p>{done.kind === 'quote' ? 'The quote is saved.' : 'The order is placed: it is on Home under Pending, and its invoice and POs are in the Xero queue (Admin › Not yet in Xero).'}</p>
+      <div className="no-done"><div className="no-card"><h2>{done.number}</h2><p>{done.kind === 'quote' ? 'The quote is saved.' : 'The order is placed: it is on Home under Pending.' + (done.upload ? '' : ' Not uploaded to Xero (Upload to Xero: No).')}</p>
+        {(done.xero || []).map((x, i) => <p key={'x' + i} className={x.ok ? 'msg' : 'msg bad'}>{x.text}</p>)}
         {(done.sent || []).length > 0 && <p className="msg">PO emails sent: {done.sent.join(' · ')}.</p>}
         {(done.failed || []).length > 0 && <p className="msg bad">Not sent: {done.failed.join(' · ')}. Send them from the order page.</p>}
         {(done.portal || []).map((x, i) => <p key={i} className={x.ok ? 'msg' : 'msg bad'}>{x.text}</p>)}
@@ -647,6 +656,8 @@ export default function NewOrder() {
             {(() => { const cs = r2(lines.reduce((t, l) => t + costOf(l), 0) + allCharges.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sub - cs); return <div className="no-prof"><div className="no-sl"><span>Cost (Xero)</span><b>{cash(cs)}</b></div><div className={'no-sl' + (pr < 0 ? ' neg' : '')}><span>Profit</span><b>{cash(pr)} · {pct(pr, sub)}%</b></div></div>; })()}
             {o.customer?.on_hold && <div className="no-alert"><b>On hold:</b> this customer is on hold. Check before placing.</div>}
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}
+            {o.kind === 'order' && <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => setO({ ...o, upload_xero: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} />
+              <small>{o.upload_xero === false ? 'Nothing goes to Xero.' : 'On placing: the sales order' + (pos.length ? ' and ' + pos.length + ' purchase order' + (pos.length === 1 ? '' : 's') : '') + ' in Xero.'}</small></div>}
             {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
             {missing && !msg && <p className="no-miss">{missing}</p>}
             <button type="button" className="btn btn-red btn-big" disabled={busy} onClick={place}>{busy ? 'Placing…' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>

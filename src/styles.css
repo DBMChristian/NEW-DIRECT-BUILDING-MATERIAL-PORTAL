@@ -685,3 +685,4 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-prevh{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #E7E5E4}.no-prevh small{color:#57534E;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .no-prevmail{max-height:75vh;overflow-y:auto}
 .no-pot td{background:#F5F5F4;font-size:12.5px;font-weight:600;border-top:2px solid #D6D3D1}
+.no-upx small{display:block;margin-top:3px;font-size:11.5px;color:#57534E}

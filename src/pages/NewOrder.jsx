@@ -126,6 +126,7 @@ export default function NewOrder() {
   const setLoadQty = (uid, k, v) => setLoadsHand((Ls) => (Ls || arrangeLoads().map((L, i) => ({ ...L, uid: loads[i].uid }))).map((L) => (L.uid === uid ? { ...L, items: { ...L.items, [k]: v } } : L)));
   /* a PO's own Delivery or pick-up (13 Nov 2026): what the supplier is told; the loads keep theirs */
   const poFulfil = (P) => P.fulfil || posFulfil[P.uid] || 'delivery';
+  const lineOf = (k) => lines.find((l) => l.key === k);   /* early: the checks below use it while drawing */
   const setPoFulfil = (P, v) => { if (posHand) editPos((Ps) => Ps.map((x) => (x.uid === P.uid ? { ...x, fulfil: v } : x))); else setPosFulfil((m) => ({ ...m, [P.uid]: v })); };
   const addLoad = () => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, blankLoad(base.length + 1, headLoad)]; });
   const removeLoad = (uid) => setLoadsHand((Ls) => (Ls || loads.map((L) => ({ ...L, auto: undefined }))).filter((L) => L.uid !== uid).map((L, i) => ({ ...L, n: i + 1 })));
@@ -532,7 +533,6 @@ export default function NewOrder() {
       <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
       {profitCells(r2(x.qty * x.price), costOf(x), x.off)}
       <td className="r">{!x.locked && <button type="button" className="no-x" aria-label={(x.off ? 'Put back ' : 'Remove ') + x.name} onClick={() => setCharge(x, { off: !x.off })}>{x.off ? '↺' : '×'}</button>}</td></tr>); };
-  const lineOf = (k) => lines.find((l) => l.key === k);
   const soCats = CATS.filter((c) => lines.some((l) => l.category === c));
   const tabs = [['so', '1', 'Build SO', 'What the customer buys · one invoice', lines.length ? lines.length + ' product' + (lines.length === 1 ? '' : 's') : 'empty'],
     ['po', '2', 'Build PO', 'What we order · one per supplier', pos.length + ' PO' + (pos.length === 1 ? '' : 's')], ['load', '3', 'Build Load', 'How it goes out · trucks and pick-ups', loads.length + ' load' + (loads.length === 1 ? '' : 's')]];

@@ -135,3 +135,10 @@ a.ad-row:hover{background:#FAFAF9}
 .pp-price{width:78px}
 .pp-code{max-width:120px;white-space:normal;word-break:break-all}
 @media (max-width:1280px){.pp-table td small{display:none}}
+
+/* price lists and category groups (13 Nov 2026) */
+.pp-grp td{background:#F5F5F4;padding:0!important;border-top:1px solid var(--line)}
+.pp-grp button{width:100%;display:flex;align-items:center;gap:8px;border:0;background:none;padding:9px 10px;font:inherit;font-size:13px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--ink);cursor:pointer;text-align:left}
+.pp-grp button span{color:var(--red);width:12px}.pp-grp small{font-weight:600;text-transform:none;letter-spacing:0;color:var(--muted)}
+.pp-lh{white-space:nowrap}.pp-lh span{margin-right:2px}
+.pp-lbtn{border:0;background:none;color:#A8A29E;cursor:pointer;font-size:12px;padding:0 2px}.pp-lbtn:hover{color:var(--red)}

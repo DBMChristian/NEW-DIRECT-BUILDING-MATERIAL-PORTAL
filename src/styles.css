@@ -630,3 +630,12 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-side{top:10px}
 @media (max-width:1200px){.no-top .no-hd{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:700px){.no-top .no-hd{grid-template-columns:1fr}}
+
+/* Google's address suggestions (13 Nov 2026) */
+.ad-wrap{position:relative;display:block;min-width:0}
+.ad-wrap input{width:100%;box-sizing:border-box;height:30px;border:1px solid #b9c0c8;border-radius:3px;padding:0 8px;font:inherit;font-size:13px;background:#fff}
+.ad-pop{position:absolute;top:100%;left:0;z-index:50;min-width:320px;margin-top:2px;background:#fff;border:1px solid #b9c0c8;border-radius:4px;box-shadow:0 10px 26px rgba(0,0,0,.15);display:flex;flex-direction:column;padding:4px 0}
+.ad-pop button{border:0;background:none;text-align:left;font:inherit;font-size:13px;padding:7px 10px;cursor:pointer;color:var(--ink)}
+.ad-pop button:hover,.ad-pop button.on{background:#FEF2F2}
+.ad-pop small{font-size:10.5px;color:#78716C;padding:4px 10px 2px;text-align:right}
+.no-load .ad-wrap input{height:30px}

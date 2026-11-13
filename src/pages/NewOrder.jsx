@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
+import AddressInput from '../components/AddressInput.jsx';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
 
@@ -331,7 +332,7 @@ export default function NewOrder() {
               <div className="no-f">Their phone <span className="req">*</span><button type="button" className="link no-notmob" onClick={() => setO({ ...o, mobile: !o.mobile, contact_phone: '', sms: o.mobile ? false : null })}>{o.mobile ? 'Not a mobile?' : 'A mobile?'}</button>
                 {o.mobile ? <span className="no-mob"><b>AU +61</b><input value={fmtMob(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" placeholder="4xx xxx xxx" aria-label="Their mobile" /></span>
                   : <input value={o.contact_phone} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" placeholder="02 xxxx xxxx" aria-label="Their phone" />}</div>
-              <div className="no-f">Site address <span className="req">*</span><span className="no-two"><input value={o.site_street} onChange={(e) => setO({ ...o, site_street: e.target.value })} placeholder="14 Banks Rd" aria-label="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
+              <div className="no-f">Site address <span className="req">*</span><span className="no-two"><AddressInput value={o.site_street} onChange={(v) => setO((x) => ({ ...x, site_street: v }))} onPick={(r) => setO((x) => ({ ...x, site_street: r.street, site_suburb: r.suburb || x.site_suburb }))} placeholder="14 Banks Rd" ariaLabel="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
               <label className="no-f">Email for the invoice<input type="email" value={o.email} onChange={(e) => setO({ ...o, email: e.target.value })} placeholder="Email for this order" /></label>
               <label className="no-f">Notes<input value={o.instructions} onChange={(e) => setO({ ...o, instructions: e.target.value })} placeholder="Special instructions…" /></label>
 
@@ -440,7 +441,7 @@ export default function NewOrder() {
                 <div className="no-gh" style={{ background: cats.length === 1 ? HEAD[cats[0]] : '#1E1A17' }}>Load {L.n} <small>{cats.join(' · ') || 'empty'}</small>{loads.length > 1 && <button type="button" className="no-ghx" onClick={() => removeLoad(L.uid)}>Remove load</button>}</div>
                 <div className="no-load">
                   <Seg value={L.fulfil} set={(v) => setLoad(L.uid, { fulfil: v })} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />
-                  {L.fulfil === 'delivery' && <label className="no-f no-grow">Site address <span className="req">*</span><input value={L.site || ''} onChange={(e) => setLoad(L.uid, { site: e.target.value })} placeholder="Street, suburb, postcode" /></label>}
+                  {L.fulfil === 'delivery' && <label className="no-f no-grow">Site address <span className="req">*</span><AddressInput value={L.site || ''} onChange={(v) => setLoad(L.uid, { site: v })} onPick={(r) => setLoad(L.uid, { site: r.full })} placeholder="Street, suburb, postcode" ariaLabel={'Site address of load ' + L.n} /></label>}
                   <label className="no-f">{L.fulfil === 'delivery' ? 'Delivery date' : 'Pick-up date'}{o.kind === 'order' && <span className="req"> *</span>}<input type="date" value={L.date || ''} onChange={(e) => setLoad(L.uid, { date: e.target.value })} /></label>
                   <label className="no-f">Time<select value={L.time || 'Any time'} onChange={(e) => setLoad(L.uid, { time: e.target.value })}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
                 </div>

@@ -93,7 +93,7 @@ a.ad-row:hover{background:#FAFAF9}
 @media (max-width:820px){.ad{padding:18px}.ad-sec{grid-template-columns:1fr;gap:10px}.ad-form{grid-template-columns:1fr}.page-ghost{font-size:90px}}
 
 /* Admin > Products and prices (13 Nov 2026) */
-.pp{width:100%;max-width:1280px;margin:0 auto;padding:22px 32px 40px;display:flex;flex-direction:column;gap:12px}
+.pp{width:100%;max-width:none;margin:0;padding:18px 20px 40px;display:flex;flex-direction:column;gap:12px}
 .pp-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .pp-xero{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);flex:1;min-width:240px}.pp-xero b{color:var(--ink)}
 .pp-dot{width:10px;height:10px;border-radius:50%;background:#D6D3D1}.pp-dot.on{background:#16A34A}
@@ -103,7 +103,7 @@ a.ad-row:hover{background:#FAFAF9}
 .pp-filters select{height:40px;border:1px solid var(--soft);border-radius:8px;padding:0 10px;font:inherit;background:#fff}
 .pp-count{margin-left:auto;font-size:13px;color:var(--muted)}
 .pp-table-wrap{background:#fff;border:1px solid var(--line);border-radius:12px;overflow-x:auto}
-.pp-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1060px}
+.pp-table{width:100%;border-collapse:collapse;font-size:13px}
 .pp-table th{position:sticky;top:0;background:#FAFAF9;text-align:left;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#78716C;padding:10px;border-bottom:1px solid var(--line)}
 .pp-table td{padding:8px 10px;border-top:1px solid #F5F5F4;vertical-align:middle}
 .pp-table .r{text-align:right}
@@ -124,4 +124,14 @@ a.ad-row:hover{background:#FAFAF9}
 .pp-pick.pp-unset{color:#A8A29E}.pp-pick.pp-saving{opacity:.6}
 .pp-pick:focus{outline:2px solid var(--red);outline-offset:0}
 .pp-price{background:#fff}.pp-price:hover,.pp-text:hover,.pp-pick:hover{border-color:#8D96A1}
-.pp-table{min-width:1220px}
+.pp-table{min-width:0;table-layout:auto}
+
+/* the whole table on the screen, no sideways scroll (13 Nov 2026) */
+.pp-table th,.pp-table td{padding:7px 6px}
+.pp-table td small{max-width:300px}
+.pp-pick{max-width:none;width:118px}
+.pp-table td:nth-child(4) .pp-pick{width:136px}
+.pp-table td:nth-child(5) .pp-text{width:58px}
+.pp-price{width:78px}
+.pp-code{max-width:120px;white-space:normal;word-break:break-all}
+@media (max-width:1280px){.pp-table td small{display:none}}

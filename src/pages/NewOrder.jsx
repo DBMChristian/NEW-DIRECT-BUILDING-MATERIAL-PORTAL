@@ -357,7 +357,6 @@ export default function NewOrder() {
         if (no('tester')) return 'Build PO: concrete, tester Yes or No.';
         if (no('coloured')) return 'Build PO: concrete, coloured Yes or No.';
         if (a.coloured === 'yes' && no('colour')) return 'Build PO: concrete, enter the colour.'; } }
-    const note = allCharges.find((x) => !x.off && x.note); if (note) return 'Build Load: ' + note.note + '.';
     for (const [i, P] of pos.entries()) { if (!P.supplier_id) return 'Build PO: choose the supplier of PO ' + (i + 1) + '.';
       if (o.kind === 'order' && P.send == null) return 'Build PO: choose Send Yes or No on PO ' + (i + 1) + ' (' + P.supplier + ').';
       if (P.send && !emailOf(P).to) return 'Build PO: ' + P.supplier + ' has no email in Admin › Suppliers.'; }
@@ -755,6 +754,7 @@ export default function NewOrder() {
               <small>{o.upload_xero === false ? 'Nothing goes to Xero.' : 'On placing: the sales order' + (pos.length ? ' and ' + pos.length + ' purchase order' + (pos.length === 1 ? '' : 's') : '') + ' in Xero.'}</small></div>}
             {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
             {missing && !msg && <p className="no-miss">{missing}</p>}
+            {[...new Set(allCharges.filter((x) => !x.off && x.note && !/location|driving time/i.test(x.note)).map((x) => x.note))].map((t) => <p key={t} className="no-warnbox">Warning: {t}</p>)}
             <button type="button" className="btn btn-red btn-big" disabled={busy} onClick={place}>{busy ? 'Placing…' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>
             <div className="no-row"><button type="button" className="btn" onClick={async () => { await save(); setMsg({ text: 'Draft saved.' }); }}>Save draft</button><button type="button" className="btn" onClick={() => { if (window.confirm('Clear the form? The draft stays saved.')) restart(); }}>Clear</button></div>
           </section>

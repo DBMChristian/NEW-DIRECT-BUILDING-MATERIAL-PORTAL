@@ -76,6 +76,17 @@ function MonthPicker({ value, onPick, onClose }) {
   );
 }
 
+const CATC = { Concrete: '#CA8A04', Wafflepods: '#7C3AED', Rediwall: '#EA580C', Reinforcement: '#92400E', Hebel: '#2563EB', Bricks: '#B91C1C', NRG: '#16A34A', Bluedeck: '#0891B2', Others: '#78716C' };
+function OrderCard({ g }) {
+  return (
+    <div className="hm-card" style={{ '--c': CATC[g.loads[0].category] || '#78716C' }}>
+      <div className="hm-row"><b>{g.o.customer_name}</b><span className="hm-ref">{g.o.number}</span><span className="hm-amt">{cash(Number(g.o.total))}</span></div>
+      {g.loads.map((l) => <div key={l.id} className="hm-meta"><span className="hm-cdot" style={{ background: CATC[l.category] || '#78716C' }} />{l.category} · {l.fulfil === 'pickup' ? 'Pick-up' : 'Delivery'}{l.want_date ? ' · wants ' + dayName(new Date(l.want_date + 'T00:00:00')) : ''}{l.want_time && l.want_time !== 'Any time' ? ' ' + l.want_time : ''}</div>)}
+      <div className="hm-row"><span className="hm-chip" style={{ marginLeft: 0, background: g.o.terms === 'account' ? '#FEF3C7' : '#F5F5F4', color: g.o.terms === 'account' ? '#92400E' : '#44403C' }}>{g.o.terms === 'account' ? 'Account' : 'COD'}</span></div>
+    </div>
+  );
+}
+
 function Col({ dot, title, sub, n, nColor, children, label }) {
   return (
     <section className="hm-col" aria-label={label || title}>
@@ -96,6 +107,8 @@ export default function Home() {
   const [dtab, setDtab] = useState('all');
   const [q, setQ] = useState('');
   const [cod, setCod] = useState(null);
+  const [pend, setPend] = useState(null);
+  const [booked, setBooked] = useState(null);
   const [enq, setEnq] = useState(null);
   const [codAll, setCodAll] = useState(false);
   const [hits, setHits] = useState(null);
@@ -106,6 +119,11 @@ export default function Home() {
     /* COD balance: the portal's own COD orders that still have money owing (13 Nov 2026). Orders are not in the new
        portal yet, so it stays empty until New Order is built; Xero's own invoices are not listed here. */
     setCod([]);
+    /* Pending: the loads of placed orders not booked yet (on hold apart); the day: loads booked for it */
+    const pl = await supabase.from('order_loads').select('id, order_id, category, fulfil, site_address, want_date, want_time, status, booked_date, booked_time, orders!inner(number, status, customer_name, total, terms)').eq('orders.status', 'placed').in('status', ['pending', 'on_hold', 'booked']);
+    const rows = pl.data || [];
+    setPend(rows.filter((r) => r.status !== 'booked'));
+    setBooked(rows.filter((r) => r.status === 'booked'));
     const e = await supabase.from('enquiries').select('*').in('status', ['new', 'working']).order('created_at', { ascending: false });
     setEnq(e.data || []);
   };
@@ -117,14 +135,19 @@ export default function Home() {
     const like = '%' + t.replace(/[%_]/g, '') + '%';
     const h = setTimeout(async () => {
       /* Home's search is for orders (13 Nov 2026): the portal's orders once New Order is built, and website enquiries */
-      const [e] = await Promise.all([
+      const [ord, e] = await Promise.all([
+        supabase.from('orders').select('id, number, status, kind, customer_name, contact_phone, their_po, total, placed_at').neq('status', 'draft').or(`number.ilike.${like},customer_name.ilike.${like},their_po.ilike.${like},contact_phone.ilike.${like},contact_name.ilike.${like}`).order('placed_at', { ascending: false }).limit(30),
         supabase.from('enquiries').select('*').or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like},product.ilike.${like},site_address.ilike.${like}`).limit(20),
       ]);
-      setHits({ customers: [], enquiries: e.data || [], orders: [], invoices: [] });
+      setHits({ customers: [], enquiries: e.data || [], orders: ord.data || [], invoices: [] });
     }, 200);
     return () => clearTimeout(h);
   }, [q]);
 
+  const byOrder = (rs) => { const m = new Map(); (rs || []).forEach((r) => { const k = r.order_id; if (!m.has(k)) m.set(k, { id: k, o: r.orders, loads: [] }); m.get(k).loads.push(r); }); return [...m.values()]; };
+  const fit = (g, tab) => tab === 'all' || g.loads.some((l) => (tab === 'pickup') === (l.fulfil === 'pickup'));
+  const pendOrders = byOrder((pend || []).filter((r) => r.status === 'pending')), holdOrders = byOrder((pend || []).filter((r) => r.status === 'on_hold'));
+  const dayOrders = byOrder((booked || []).filter((r) => r.booked_date === ymd(day)));
   const todayYmd = ymd(new Date());
   const isOver = (x) => x.status === 'AUTHORISED' && x.due_date && x.due_date < todayYmd;
   const codTotal = useMemo(() => (cod || []).reduce((a, x) => a + Number(x.amount_due || 0), 0), [cod]);
@@ -139,7 +162,7 @@ export default function Home() {
 
   return (
     <>
-      <PageHeader title="HOME" sub={new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) + ' · 0 to book · ' + cash(codTotal) + ' COD owing · ' + newEnq + ' new enquir' + (newEnq === 1 ? 'y' : 'ies')} />
+      <PageHeader title="HOME" sub={new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) + ' · ' + pendOrders.length + ' to book · ' + cash(codTotal) + ' COD owing · ' + newEnq + ' new enquir' + (newEnq === 1 ? 'y' : 'ies')} />
       {openEnq && <EnquiryPanel e={openEnq} me={staff} onClose={() => setOpenEnq(null)} onSaved={() => { setOpenEnq(null); load(); }} />}
       <div className="hm">
         <div className="hm-bar">
@@ -163,21 +186,23 @@ export default function Home() {
           <div className="hm-results">
             <div className="hm-rbar"><span><b>{found} found</b> for "{q.trim()}"</span><span className="hm-esc">Esc or Clear goes back to Home</span></div>
                         <section className="hm-grp"><div className="hm-gh hm-gh-fill" style={{ background: '#B45309' }}>Orders <i>{hits.orders.length}</i></div>
-              {!hits.orders.length && <div className="hm-hit hm-none">No orders yet: orders show here once New Order is built.</div>}</section>
+              {!hits.orders.length && <div className="hm-hit hm-none">No order matches.</div>}
+              {hits.orders.map((x) => <div key={x.id} className="hm-hit"><div><b>{hl(x.customer_name)} <span className="hm-ref">{hl(x.number || '')}</span></b><small>{[x.their_po && 'PO ' + x.their_po, x.contact_phone, x.placed_at && new Date(x.placed_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })].filter(Boolean).join(' · ')}</small></div>
+                <span className={'hm-chip ' + (x.status === 'quote' ? 'hm-st-new' : x.status === 'cancelled' ? 'hm-st-closed' : 'hm-st-working')}>{x.status === 'quote' ? 'Quote' : x.status === 'cancelled' ? 'Cancelled' : 'Placed'}</span><span className="hm-amt">{cash(Number(x.total))}</span></div>)}</section>
             {hits.enquiries.length > 0 && <section className="hm-grp"><div className="hm-gh hm-gh-fill" style={{ background: '#0E7490' }}>Website enquiries <i>{hits.enquiries.length}</i></div>
               {hits.enquiries.map((e) => <div key={e.id} className="hm-hit"><div><b>{hl(e.name)}</b><small>{[e.product, e.location, e.phone].filter(Boolean).join(' · ')} · {ago(e.created_at)}</small></div><span className={'hm-chip hm-st-' + e.status}>{(ESTATUS.find((x) => x[0] === e.status) || [, e.status])[1]}</span>{e.taken_by_name && <span className="hm-with">With <b>{e.taken_by_name}</b></span>}<button type="button" className="hm-btn" onClick={() => setOpenEnq(e)}>View details</button></div>)}</section>}
           </div>
         ) : (
           <div className="hm-cols">
-            <Col dot="#B45309" title="Pending" sub="Not booked yet" n={0}>
-              <Tabs value={ptab} set={setPtab} counts={{ all: 0, delivery: 0, pickup: 0 }} />
-              <div className="hm-list"><div className="hm-empty">Nothing to book. Orders show here once New Order is built.</div></div>
-              <div className="hm-sec"><span className="hm-dot" style={{ background: '#EA580C' }} />ON HOLD 0</div>
-              <div className="hm-list"><div className="hm-empty hm-small">No order on hold.</div></div>
+            <Col dot="#B45309" title="Pending" sub="Not booked yet" n={pendOrders.length}>
+              <Tabs value={ptab} set={setPtab} counts={{ all: pendOrders.length, delivery: pendOrders.filter((g) => fit(g, 'delivery')).length, pickup: pendOrders.filter((g) => fit(g, 'pickup')).length }} />
+              <div className="hm-list">{pendOrders.filter((g) => fit(g, ptab)).length ? pendOrders.filter((g) => fit(g, ptab)).map((g) => <OrderCard key={g.id} g={g} />) : <div className="hm-empty">Nothing to book.</div>}</div>
+              <div className="hm-sec"><span className="hm-dot" style={{ background: '#EA580C' }} />ON HOLD {holdOrders.length}</div>
+              <div className="hm-list">{holdOrders.length ? holdOrders.map((g) => <OrderCard key={g.id} g={g} />) : <div className="hm-empty hm-small">No order on hold.</div>}</div>
             </Col>
-            <Col dot="#15803D" title={dayLabel} sub={day.getTime() === today.getTime() ? dayName(day) + ' · booked for today' : 'Booked for this day'} n={0} nColor="#16A34A" label="The chosen day">
-              <Tabs value={dtab} set={setDtab} counts={{ all: 0, delivery: 0, pickup: 0 }} />
-              <div className="hm-list"><div className="hm-empty">No booked orders {range === 'week' ? 'this week' : 'on ' + dayName(day)}.</div></div>
+            <Col dot="#15803D" title={dayLabel} sub={day.getTime() === today.getTime() ? dayName(day) + ' · booked for today' : 'Booked for this day'} n={dayOrders.length} nColor="#16A34A" label="The chosen day">
+              <Tabs value={dtab} set={setDtab} counts={{ all: dayOrders.length, delivery: dayOrders.filter((g) => fit(g, 'delivery')).length, pickup: dayOrders.filter((g) => fit(g, 'pickup')).length }} />
+              <div className="hm-list">{dayOrders.filter((g) => fit(g, dtab)).length ? dayOrders.filter((g) => fit(g, dtab)).map((g) => <OrderCard key={g.id} g={g} />) : <div className="hm-empty">No booked orders on {dayName(day)}.</div>}</div>
             </Col>
             <Col dot="#B91C1C" title="COD balance" sub={cod === null ? 'Loading…' : cash(codTotal) + ' owing on ' + cod.length + ' order' + (cod.length === 1 ? '' : 's') + (codOver ? ' · ' + cash(codOver) + ' overdue' : '')} n={cod ? cod.length : null}>
               <div className="hm-list hm-rows">

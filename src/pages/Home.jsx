@@ -103,10 +103,9 @@ export default function Home() {
   const [calOpen, setCalOpen] = useState(false);
 
   const load = async () => {
-    /* COD balance: every unpaid invoice of a COD customer (from Xero), oldest first */
-    const [iv, cs] = await Promise.all([supabase.from('xero_invoices').select('*').order('invoice_date', { ascending: true }), supabase.from('customers').select('xero_contact_id, name, terms, mobile, phone')]);
-    const byId = new Map((cs.data || []).map((c) => [String(c.xero_contact_id), c]));
-    setCod((iv.data || []).filter((x) => (byId.get(String(x.xero_contact_id)) || {}).terms !== 'account').map((x) => ({ ...x, customer: byId.get(String(x.xero_contact_id)) })));
+    /* COD balance: the portal's own COD orders that still have money owing (13 Nov 2026). Orders are not in the new
+       portal yet, so it stays empty until New Order is built; Xero's own invoices are not listed here. */
+    setCod([]);
     const e = await supabase.from('enquiries').select('*').in('status', ['new', 'working']).order('created_at', { ascending: false });
     setEnq(e.data || []);
   };
@@ -184,7 +183,7 @@ export default function Home() {
             </Col>
             <Col dot="#B91C1C" title="COD balance" sub={cod === null ? 'Loading…' : cash(codTotal) + ' owing on ' + cod.length + ' order' + (cod.length === 1 ? '' : 's') + (codOver ? ' · ' + cash(codOver) + ' overdue' : '')} n={cod ? cod.length : null}>
               <div className="hm-list hm-rows">
-                {cod !== null && !cod.length && <div className="hm-empty">No unpaid COD orders.</div>}
+                {cod !== null && !cod.length && <div className="hm-empty">No COD orders with a balance. Orders placed in this portal show here while they still owe money.</div>}
                 {(cod || []).slice(0, codAll ? 999 : 6).map((x) => (
                   <div key={x.xero_invoice_id} className="hm-line"><div><b>{x.customer_name}</b>
                     <small>{x.number}{x.reference ? ' · ' + x.reference : ''} · {x.invoice_date ? ago(x.invoice_date + 'T00:00:00') + ' old' : ''}{x.status === 'SUBMITTED' ? <span className="hm-appr"> · awaiting approval</span> : isOver(x) ? <span className="hm-red"> · overdue</span> : ''}</small></div>

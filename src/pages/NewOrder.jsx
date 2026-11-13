@@ -25,6 +25,22 @@ function Seg({ value, set, options }) {
   return <div className="no-seg" role="group">{options.map(([v, l]) => <button key={v} type="button" className={value === v ? 'on' : ''} aria-pressed={value === v} onClick={() => set(v)}>{l}</button>)}</div>;
 }
 
+/* concrete in the picker, grouped as the plants sell it (13 Nov 2026): the mixes by kind, then the additional charges
+   (additives, colours and the rest that are not a mix) */
+const CON_GROUPS = ['10mm Standard', '20mm Standard', 'Shotcrete', 'Long line', 'Wall', 'Blockfill', 'Other mixes', 'Additional charges'];
+export const concreteGroup = (p) => {
+  const c = String(p.code || '').toUpperCase(), n = String(p.name || '').toUpperCase();
+  if (!/^CR\d/.test(c)) return 'Additional charges';
+  if (/SHOTCRETE/.test(c + n)) return 'Shotcrete';
+  if (/LONG ?LINE/.test(c + ' ' + n)) return 'Long line';
+  if (/WALL/.test(c + n)) return 'Wall';
+  if (/BLOCK ?FILL/.test(c + ' ' + n)) return 'Blockfill';
+  if (/^CR\d+\/10\/(90|STANDARD)/.test(c) || /10MM$/.test(n.trim())) return '10mm Standard';
+  if (/^CR\d+\/20\/(90|STANDARD)/.test(c) || /20MM$/.test(n.trim())) return '20mm Standard';
+  return 'Other mixes';
+};
+const mpa = (p) => Number((/^CR(\d+)/i.exec(p.code || '') || [])[1] || 999);
+
 const blankLoad = (n) => ({ uid: key(), fulfil: 'delivery', site: '', date: '', time: 'Any time', answers: {}, items: {}, n });
 const qtyIn = (map, k) => Number((map || {})[k] || 0);
 
@@ -271,10 +287,15 @@ export default function NewOrder() {
             <div className="no-cats">{CATS.filter((c) => catCount(c)).map((c) => <button key={c} type="button" className={'no-cat' + (cat === c ? ' on' : '')} style={{ '--c': COLOR[c] }} onClick={() => { setCat(cat === c ? '' : c); setAll(false); }}><i />{c}</button>)}</div>
             <input type="search" className="no-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={cat ? 'Search ' + cat + ' by name or code…' : 'Search a product by name or code…'} aria-label="Search a product" />
             {cat && q.trim().length < 2 && <button type="button" className={'no-all' + (all ? ' on' : '')} onClick={() => setAll(!all)}><span>{all ? '▾' : '▸'} Show all {cat} products</span><small>{catCount(cat)}</small></button>}
-            {shown.length > 0 && <div className="no-res">{shown.map((p) => { const rt = routeOf(p.category); return (
-              <div key={p.id} className="no-ri"><div><b>{p.name}</b><small>{p.code} · {p.unit || 'each'}</small></div>
-                <span className="no-from">{rt ? rt.supplier?.name?.replace(' Pty Ltd', '') + ' · ' + (rt.portal || 'email') : 'Penrith stock'}</span>
-                <span className="no-p">{cash(priceFor(p))}</span><button type="button" className="btn btn-red" onClick={() => add(p)}>Add</button></div>); })}</div>}
+            {shown.length > 0 && <div className="no-res">{(() => {
+              const row = (p) => { const rt = routeOf(p.category); return (
+                <div key={p.id} className="no-ri"><div><b>{p.name}</b><small>{p.code} · {p.unit || 'each'}</small></div>
+                  <span className="no-from">{rt ? rt.supplier?.name?.replace(' Pty Ltd', '') + ' · ' + (rt.portal || 'email') : 'Penrith stock'}</span>
+                  <span className="no-p">{cash(priceFor(p))}</span><button type="button" className="btn btn-red" onClick={() => add(p)}>Add</button></div>); };
+              /* concrete: the mixes by kind (weakest first), then the additional charges */
+              if (!shown.every((p) => p.category === 'Concrete')) return shown.map(row);
+              return CON_GROUPS.map((gname) => { const ps = shown.filter((p) => concreteGroup(p) === gname).sort((a, b) => mpa(a) - mpa(b) || a.name.localeCompare(b.name)); return ps.length ? [<div key={'g-' + gname} className={'no-rg' + (gname === 'Additional charges' ? ' no-rg-x' : '')}>{gname} <small>{ps.length}</small></div>, ...ps.map(row)] : null; });
+            })()}</div>}
             {q.trim().length >= 2 && !shown.length && <p className="no-sub">No product matches.</p>}
           </section>
           <section className="no-card" aria-label="On this order">

@@ -79,9 +79,9 @@ function MonthPicker({ value, onPick, onClose }) {
 const CATC = { Concrete: '#CA8A04', Wafflepods: '#7C3AED', Rediwall: '#EA580C', Reinforcement: '#92400E', Hebel: '#2563EB', Bricks: '#B91C1C', NRG: '#16A34A', Bluedeck: '#0891B2', Others: '#78716C' };
 function OrderCard({ g }) {
   return (
-    <div className="hm-card" style={{ '--c': CATC[g.loads[0].category] || '#78716C' }}>
+    <div className="hm-card" style={{ '--c': CATC[String(g.loads[0].category).split(', ')[0]] || '#78716C' }}>
       <div className="hm-row"><b>{g.o.customer_name}</b><span className="hm-ref">{g.o.number}</span><span className="hm-amt">{cash(Number(g.o.total))}</span></div>
-      {g.loads.map((l) => <div key={l.id} className="hm-meta"><span className="hm-cdot" style={{ background: CATC[l.category] || '#78716C' }} />{l.category} · {l.fulfil === 'pickup' ? 'Pick-up' : 'Delivery'}{l.want_date ? ' · wants ' + dayName(new Date(l.want_date + 'T00:00:00')) : ''}{l.want_time && l.want_time !== 'Any time' ? ' ' + l.want_time : ''}</div>)}
+      {g.loads.map((l) => <div key={l.id} className="hm-meta"><span className="hm-cdot" style={{ background: CATC[String(l.category).split(', ')[0]] || '#78716C' }} />{l.category} · {l.fulfil === 'pickup' ? 'Pick-up' : 'Delivery'}{l.want_date ? ' · wants ' + dayName(new Date(l.want_date + 'T00:00:00')) : ''}{l.want_time && l.want_time !== 'Any time' ? ' ' + l.want_time : ''}</div>)}
       <div className="hm-row"><span className="hm-chip" style={{ marginLeft: 0, background: g.o.terms === 'account' ? '#FEF3C7' : '#F5F5F4', color: g.o.terms === 'account' ? '#92400E' : '#44403C' }}>{g.o.terms === 'account' ? 'Account' : 'COD'}</span></div>
     </div>
   );

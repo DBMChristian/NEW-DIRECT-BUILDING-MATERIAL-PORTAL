@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
-import { chargesFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
+import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
 
-/* New Order, as approved (13 Nov 2026): one page. 1 the customer (their chips and red notes), 2 the products (the
-   category chips, the search, Show all), 3 on this order: one block per material, which is its own load (delivery or
-   pick-up, site, day, time, its questions), its products and its additional charges (the previous form's rules); the
-   order summed up on the right. It saves itself as a draft; Place order numbers it, and queues its invoice for Xero.
-   A changed price needs a reason; a customer on hold or over their limit is warned in red. */
+/* New Order (13 Nov 2026), with the previous portal's three tabs under the customer:
+   1 Build SO: what the customer buys, one invoice (products, prices with reasons, the additional charges);
+   2 Build PO: what Direct orders, one PO per supplier (from Admin › Suppliers), or from Penrith stock; move a product
+     to another PO, change what is ordered, deliver to the site or to Penrith;
+   3 Build Load: how it goes out, each truck or pick-up and what is on it (split a product over loads), with the day,
+     time, site and the waffle pod and concrete questions; the delivery charges follow the loads (previous form's rules).
+   Until a PO or a load is changed by hand they follow the products by themselves (one PO per supplier, one load per
+   material). It saves itself as a draft; Place order numbers it and queues its invoice for Xero. */
 const CATS = ['Concrete', 'Wafflepods', 'Rediwall', 'Reinforcement', 'Hebel', 'Bricks', 'NRG', 'Bluedeck', 'Others'];
 const COLOR = { Concrete: '#CA8A04', Wafflepods: '#7C3AED', Rediwall: '#EA580C', Reinforcement: '#92400E', Hebel: '#2563EB', Bricks: '#B91C1C', NRG: '#16A34A', Bluedeck: '#0891B2', Others: '#78716C' };
 const HEAD = { Concrete: '#A16207', Wafflepods: '#6D28D9', Rediwall: '#C2410C', Reinforcement: '#78350F', Hebel: '#1D4ED8', Bricks: '#991B1B', NRG: '#15803D', Bluedeck: '#0E7490', Others: '#57534E' };
@@ -22,16 +25,23 @@ function Seg({ value, set, options }) {
   return <div className="no-seg" role="group">{options.map(([v, l]) => <button key={v} type="button" className={value === v ? 'on' : ''} aria-pressed={value === v} onClick={() => set(v)}>{l}</button>)}</div>;
 }
 
+const blankLoad = (n) => ({ uid: key(), fulfil: 'delivery', site: '', date: '', time: 'Any time', answers: {}, items: {}, n });
+const qtyIn = (map, k) => Number((map || {})[k] || 0);
+
 export default function NewOrder() {
   const { staff } = useAuth();
   const nav = useNavigate();
+  const [tab, setTab] = useState('so');
   const [products, setProducts] = useState([]);
   const [extraPrices, setExtraPrices] = useState({});
   const [routes, setRoutes] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [o, setO] = useState({ id: null, kind: 'order', customer: null, contact_name: '', contact_phone: '', email: '', their_po: '', instructions: '' });
-  const [lines, setLines] = useState([]);              /* products: { key, product_id, code, name, unit, category, qty, price, list, reason } */
-  const [loads, setLoads] = useState({});              /* by material: { fulfil, site, date, time, answers } */
-  const [over, setOver] = useState({});                /* a charge typed over: { 'Cat|key': { price, qty, reason, off } } */
+  const [lines, setLines] = useState([]);          /* { key, product_id, code, name, unit, category, qty, price, list, reason } */
+  const [loadsHand, setLoadsHand] = useState(null); /* null: one load per material by itself; else the loads as arranged */
+  const [loadInfo, setLoadInfo] = useState({});    /* the automatic loads' day, site, questions, by material */
+  const [posHand, setPosHand] = useState(null);     /* null: one PO per supplier by itself; else the POs as arranged */
+  const [over, setOver] = useState({});            /* a charge typed over: { 'load|key': { price, qty, reason, off } } */
   const [notes, setNotes] = useState([]);
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
   const [cat, setCat] = useState(''); const [q, setQ] = useState(''); const [all, setAll] = useState(false);
@@ -44,18 +54,48 @@ export default function NewOrder() {
     const ex = {}; f = 0;
     for (;;) { const { data } = await supabase.from('product_prices').select('product_id, list_id, price').range(f, f + 999); (data || []).forEach((r) => { (ex[r.product_id] = ex[r.product_id] || {})[r.list_id] = Number(r.price); }); if (!data || data.length < 1000) break; f += 1000; }
     setExtraPrices(ex);
-    const rt = await supabase.from('supplier_routes').select('portal, categories, supplier:suppliers(name, active)'); setRoutes(rt.data || []);
+    const rt = await supabase.from('supplier_routes').select('portal, categories, supplier_id, supplier:suppliers(id, name, active)'); setRoutes(rt.data || []);
+    const sp = await supabase.from('suppliers').select('id, name, active').eq('active', true).order('name'); setSuppliers(sp.data || []);
   })(); }, []);
 
-  /* the customer's price for a product: their price list, else Xero's */
   const priceFor = (p, pl = o.customer?.price_list || 'builder') => {
     if (!p) return 0;
     const m = /^list:(\d+)$/.exec(pl), v = m ? (extraPrices[p.id] || {})[m[1]] : pl === 'installer' ? p.price_installer : pl === 'online' ? p.price_online : p.price_builder;
     return Number(v ?? p.xero_sales_price ?? 0);
   };
   const byCode = useMemo(() => new Map(products.map((p) => [String(p.code).toLowerCase(), p])), [products]);
-  const ctx = { priceOf: (code) => priceFor(byCode.get(String(code).toLowerCase())), nameOf: (code) => byCode.get(String(code).toLowerCase())?.name, company: o.customer?.name };
+  const ctx = { priceOf: (code) => priceFor(byCode.get(String(code).toLowerCase())), nameOf: (code) => byCode.get(String(code).toLowerCase())?.name, company: o.customer?.name, noImpc: true };
   const routeOf = (c) => routes.find((r) => (r.categories || []).includes(c) && r.supplier?.active !== false);
+
+  /* ---------- the loads: by themselves one per material, else as arranged ---------- */
+  const loads = useMemo(() => {
+    if (loadsHand) return loadsHand.map((L) => ({ ...L, items: Object.fromEntries(Object.entries(L.items).filter(([k]) => lines.some((l) => l.key === k))) }));
+    return CATS.filter((c) => lines.some((l) => l.category === c)).map((c, i) => ({ ...blankLoad(i + 1), uid: 'auto-' + c, ...(loadInfo[c] || {}), auto: c, n: i + 1,
+      items: Object.fromEntries(lines.filter((l) => l.category === c).map((l) => [l.key, l.qty])) }));
+  }, [loadsHand, lines, loadInfo]);
+  const arrangeLoads = () => loadsHand || loads.map((L) => ({ ...L, auto: undefined, uid: key() }));
+  const setLoad = (uid, ch) => { if (!loadsHand) { const L = loads.find((x) => x.uid === uid); if (L && L.auto) { setLoadInfo((I) => ({ ...I, [L.auto]: { ...(I[L.auto] || {}), ...ch } })); return; } }
+    setLoadsHand((Ls) => (Ls || arrangeLoads()).map((L) => (L.uid === uid ? { ...L, ...ch } : L))); };
+  const setAns = (uid, ch) => { const L = loads.find((x) => x.uid === uid); setLoad(uid, { answers: { ...(L?.answers || {}), ...ch } }); };
+  const setLoadQty = (uid, k, v) => setLoadsHand((Ls) => (Ls || arrangeLoads().map((L, i) => ({ ...L, uid: loads[i].uid }))).map((L) => (L.uid === uid ? { ...L, items: { ...L.items, [k]: v } } : L)));
+  const addLoad = () => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, blankLoad(base.length + 1)]; });
+  const removeLoad = (uid) => setLoadsHand((Ls) => (Ls || loads.map((L) => ({ ...L, auto: undefined }))).filter((L) => L.uid !== uid).map((L, i) => ({ ...L, n: i + 1 })));
+  const moveToLoad = (k, from, to) => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); const q0 = qtyIn(base.find((L) => L.uid === from)?.items, k);
+    return base.map((L) => (L.uid === from ? { ...L, items: { ...L.items, [k]: 0 } } : L.uid === to ? { ...L, items: { ...L.items, [k]: qtyIn(L.items, k) + q0 } } : L)); });
+
+  /* ---------- the POs: by themselves one per supplier (Admin › Suppliers), else as arranged ---------- */
+  const pos = useMemo(() => {
+    if (posHand) return posHand.map((P) => ({ ...P, items: Object.fromEntries(Object.entries(P.items).filter(([k]) => lines.some((l) => l.key === k))) }));
+    const out = [];
+    lines.forEach((l) => { const rt = routeOf(l.category); if (!rt) return;
+      let P = out.find((x) => x.supplier_id === rt.supplier_id && x.portal === (rt.portal || ''));
+      if (!P) { P = { uid: 'auto-' + rt.supplier_id + '-' + rt.portal, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: {} }; out.push(P); }
+      P.items[l.key] = l.qty; });
+    return out;
+  }, [posHand, lines, routes]);
+  const arrangePos = () => posHand || pos.map((P) => ({ ...P, uid: key() }));
+  const editPos = (fn) => setPosHand((Ps) => fn(Ps || pos.map((P) => ({ ...P }))));
+  const stockKeys = lines.filter((l) => !pos.some((P) => qtyIn(P.items, l.key) > 0)).map((l) => l.key);
 
   /* customer search */
   useEffect(() => { const t = cq.trim(); if (t.length < 2 || o.customer) { setCHits([]); return; }
@@ -77,42 +117,51 @@ export default function NewOrder() {
     return []; }, [pickable, q, cat, all]);
   const catCount = (c) => pickable.filter((p) => p.category === c).length;
   const add = (p) => {
-    const c = p.category || 'Others';
+    const c = p.category || 'Others', k0 = key();
     setLines((ls) => { const ex = ls.find((l) => l.product_id === p.id); if (ex) return ls.map((l) => (l === ex ? { ...l, qty: Number(l.qty) + 1 } : l));
-      const pr = priceFor(p); return [...ls, { key: key(), product_id: p.id, code: p.code, name: p.name, unit: p.unit || 'each', category: c, qty: 1, price: pr, list: pr, reason: '' }]; });
-    setLoads((L) => (L[c] ? L : { ...L, [c]: { fulfil: 'delivery', site: '', date: '', time: 'Any time', answers: c === 'Concrete' ? { plant: '', pour: 'Pump', truck: 'Any Truck Size', spacing: '15min', message: 'Neat' } : {} } }));
+      const pr = priceFor(p); return [...ls, { key: k0, product_id: p.id, code: p.code, name: p.name, unit: p.unit || 'each', category: c, qty: 1, price: pr, list: pr, reason: '' }]; });
+    /* arranged loads and POs: a new product goes on the first load of its material (else the first), and its supplier's PO */
+    if (loadsHand) setLoadsHand((Ls) => { if (!Ls.length) return [{ ...blankLoad(1), items: { [k0]: 1 } }]; const i = Math.max(0, Ls.findIndex((L) => Object.keys(L.items).some((k) => lines.find((l) => l.key === k)?.category === c)));
+      return Ls.map((L, j) => (j === i ? { ...L, items: { ...L.items, [k0]: 1 } } : L)); });
+    if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id); if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
+      return [...Ps, { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: { [k0]: 1 } }]; }); }
   };
   const setLine = (k, ch) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...ch } : l)));
-  const setLoad = (c, ch) => setLoads((L) => ({ ...L, [c]: { ...L[c], ...ch } }));
-  const setAns = (c, ch) => setLoads((L) => ({ ...L, [c]: { ...L[c], answers: { ...(L[c].answers || {}), ...ch } } }));
+  const removeLine = (k) => setLines((ls) => ls.filter((x) => x.key !== k));
 
-  /* the materials on the order, each with its products and charges */
-  const groups = useMemo(() => CATS.filter((c) => lines.some((l) => l.category === c)).map((c) => {
-    const ls = lines.filter((l) => l.category === c), ld = loads[c] || { fulfil: 'delivery', answers: {} };
-    const ch = chargesFor(c, lines, ld, ctx).map((x) => { const ov = over[c + '|' + x.key] || {}; return { ...x, list: x.price, price: ov.price ?? x.price, qty: ov.qty ?? x.qty, reason: ov.reason || '', off: !!ov.off }; });
-    const goods = ls.reduce((s, l) => s + r2(l.qty * l.price), 0), chs = ch.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0);
-    return { c, ls, ld, ch, total: r2(goods + chs) };
-  }), [lines, loads, over, products, extraPrices, o.customer]);
-  const sub = r2(groups.reduce((s, g) => s + g.total, 0)), gst = r2(sub * 0.1), total = r2(sub + gst);
+  /* ---------- the charges: per load (delivery, waffle pods, concrete) and the impact charge once ---------- */
+  const loadCharges = useMemo(() => loads.map((L) => {
+    const inLoad = lines.map((l) => ({ ...l, qty: qtyIn(L.items, l.key) })).filter((l) => l.qty > 0);
+    const cats = [...new Set(inLoad.map((l) => l.category))];
+    const ch = cats.flatMap((c) => chargesFor(c, inLoad, L, ctx).map((x) => ({ ...x, cat: c, key: c + ':' + x.key })))
+      .map((x) => { const ov = over[L.uid + '|' + x.key] || {}; return { ...x, load: L.uid, list: x.price, price: ov.price ?? x.price, qty: ov.qty ?? x.qty, reason: ov.reason || '', off: !!ov.off }; });
+    return { L, inLoad, cats, ch };
+  }), [loads, lines, over, products, extraPrices, o.customer]);
+  const impc = impcFor(lines);
+  const allCharges = [...(impc ? [{ ...impc, load: '', list: impc.price, reason: '', off: false }] : []), ...loadCharges.flatMap((x) => x.ch)];
+  const goods = r2(lines.reduce((s, l) => s + r2(l.qty * l.price), 0)), chSum = r2(allCharges.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0));
+  const sub = r2(goods + chSum), gst = r2(sub * 0.1), total = r2(sub + gst);
   const owes = Number(o.customer?.xero_awaiting_payment || 0) + Number(o.customer?.xero_awaiting_approval || 0);
   const overLimit = o.customer && o.customer.credit_limit != null && owes + (o.kind === 'order' ? total : 0) > Number(o.customer.credit_limit);
+  const setCharge = (x, ch) => { const k = x.load + '|' + x.key; setOver((O) => ({ ...O, [k]: { ...(O[k] || {}), ...ch } })); };
 
-  /* what is still missing before placing */
+  /* ---------- what is still missing ---------- */
   const missing = useMemo(() => {
     if (!o.customer) return 'Choose the company.';
     if (!o.contact_name.trim() || !o.contact_phone.trim()) return 'Enter their name and phone.';
     if (!lines.length) return 'Add at least one product.';
-    for (const g of groups) {
-      if (g.ld.fulfil === 'delivery' && !String(g.ld.site || '').trim()) return g.c + ': enter the site address.';
-      if (o.kind === 'order' && !g.ld.date) return g.c + ': choose the ' + (g.ld.fulfil === 'delivery' ? 'delivery' : 'pick-up') + ' date.';
-      const bad = g.ls.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || g.ch.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
-      if (bad) return 'Give the reason for the changed price of ' + bad.name + '.';
-      const note = g.ch.find((x) => !x.off && x.note); if (note) return g.c + ': ' + note.note + '.';
-    }
+    const bad = lines.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || allCharges.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
+    if (bad) return 'Build SO: give the reason for the changed price of ' + bad.name + '.';
+    for (const l of lines) { const onLoads = loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0); if (Math.abs(onLoads - l.qty) > 1e-6) return 'Build Load: ' + l.name + ' has ' + onLoads + ' of ' + l.qty + ' on loads.'; }
+    for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) return 'Build Load: load ' + L.n + ' is empty: remove it.';
+      if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
+      if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
+    const note = allCharges.find((x) => !x.off && x.note); if (note) return 'Build Load: ' + note.note + '.';
+    for (const P of pos) if (!P.supplier_id) return 'Build PO: choose the supplier of each PO.';
     return '';
-  }, [o, lines, groups]);
+  }, [o, lines, loads, pos, allCharges]);
 
-  /* the draft: saved as you go (the order, its loads, its lines) */
+  /* ---------- the draft: saved as you go ---------- */
   const busyRef = useRef(false);
   const save = async () => {
     if (!o.customer && !lines.length) return o.id;
@@ -123,20 +172,31 @@ export default function NewOrder() {
       let id = o.id;
       if (!id) { const r = await supabase.from('orders').insert({ ...head, created_by: staff.email, created_by_name: staff.name || staff.email.split('@')[0] }).select('id').single(); if (r.error) throw r.error; id = r.data.id; setO((x) => ({ ...x, id })); }
       else { const r = await supabase.from('orders').update(head).eq('id', id).eq('status', 'draft'); if (r.error) throw r.error; }
-      await supabase.from('order_loads').delete().eq('order_id', id);
-      let sort = 0;
-      for (const g of groups) {
-        const ld = await supabase.from('order_loads').insert({ order_id: id, category: g.c, fulfil: g.ld.fulfil, site_address: g.ld.fulfil === 'delivery' ? g.ld.site || '' : '', want_date: g.ld.date || null, want_time: g.ld.time || 'Any time', answers: g.ld.answers || {}, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: sort++ }).select('id').single();
+      for (const t of ['order_pos', 'order_loads', 'order_lines']) { const r = await supabase.from(t).delete().eq('order_id', id); if (r.error) throw r.error; }
+      /* the products, then the loads and what is on them (and their charges), then the POs */
+      const pl = await supabase.from('order_lines').insert(lines.map((l, i) => ({ order_id: id, product_id: l.product_id, code: l.code, name: l.name, unit: l.unit, qty: l.qty, price: l.price, list_price: l.list, price_reason: l.reason, from_stock: stockKeys.includes(l.key), sort: i }))).select('id');
+      if (pl.error) throw pl.error;
+      const lineId = Object.fromEntries(lines.map((l, i) => [l.key, pl.data[i].id]));
+      if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }); if (r.error) throw r.error; }
+      for (const [i, x] of loadCharges.entries()) { const L = x.L;
+        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: L.answers || {}, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
         if (ld.error) throw ld.error;
-        const rows = [...g.ls.map((l, i) => ({ order_id: id, load_id: ld.data.id, product_id: l.product_id, code: l.code, name: l.name, unit: l.unit, qty: l.qty, price: l.price, list_price: l.list, price_reason: l.reason, sort: i })),
-          ...g.ch.filter((x) => !x.off).map((x, i) => ({ order_id: id, load_id: ld.data.id, product_id: byCode.get(String(x.code).toLowerCase())?.id || null, code: x.code === 'DELIVERY' ? '' : x.code, name: x.name, unit: x.unit, qty: x.qty, price: x.price, list_price: x.list, price_reason: x.reason, is_charge: true, charge_key: x.key, sort: 100 + i }))];
-        if (rows.length) { const r = await supabase.from('order_lines').insert(rows); if (r.error) throw r.error; }
+        const its = x.inLoad.map((l) => ({ load_id: ld.data.id, line_id: lineId[l.key], qty: l.qty }));
+        if (its.length) { const r = await supabase.from('order_load_items').insert(its); if (r.error) throw r.error; }
+        const chs = x.ch.filter((c) => !c.off).map((c, j) => ({ order_id: id, load_id: ld.data.id, product_id: byCode.get(String(c.code).toLowerCase())?.id || null, code: c.code === 'DELIVERY' ? '' : c.code, name: c.name, unit: c.unit, qty: c.qty, price: c.price, list_price: c.list, price_reason: c.reason, is_charge: true, charge_key: c.key, sort: 100 + j }));
+        if (chs.length) { const r = await supabase.from('order_lines').insert(chs); if (r.error) throw r.error; }
+      }
+      for (const [i, P] of pos.entries()) {
+        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', notes: P.notes || '', sort: i }).select('id').single();
+        if (pr.error) throw pr.error;
+        const its = Object.entries(P.items).filter(([, v]) => Number(v) > 0 && true).map(([k, v]) => ({ po_id: pr.data.id, line_id: lineId[k], qty: Number(v) })).filter((x) => x.line_id);
+        if (its.length) { const r = await supabase.from('order_po_items').insert(its); if (r.error) throw r.error; }
       }
       setSaved(new Date()); return id;
     } catch (e) { setMsg({ bad: true, text: 'Not saved: ' + (e.message || e) }); return o.id; }
     finally { busyRef.current = false; }
   };
-  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o.kind, o.customer, o.contact_name, o.contact_phone, o.email, o.their_po, o.instructions, lines, loads, over]);
+  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o.kind, o.customer, o.contact_name, o.contact_phone, o.email, o.their_po, o.instructions, lines, loadsHand, loadInfo, posHand, over]);
 
   const place = async () => {
     if (missing) { setMsg({ bad: true, text: 'Not ready: ' + missing }); return; }
@@ -147,7 +207,7 @@ export default function NewOrder() {
     if (error) { setMsg({ bad: true, text: error.message }); return; }
     setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name });
   };
-  const restart = () => { setO({ id: null, kind: 'order', customer: null, contact_name: '', contact_phone: '', email: '', their_po: '', instructions: '' }); setLines([]); setLoads({}); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); };
+  const restart = () => { setO({ id: null, kind: 'order', customer: null, contact_name: '', contact_phone: '', email: '', their_po: '', instructions: '' }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
 
   if (done) return (
     <>
@@ -157,13 +217,25 @@ export default function NewOrder() {
     </>
   );
 
+  /* a function, not a component: the price box keeps its focus while typing */
+  const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
+    <tr key={x.load + x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
+      <td className="r">{x.locked ? cash(x.price) : <><input className={'no-price' + (changed ? ' ch' : '')} value={x.price} disabled={x.off} inputMode="decimal" onChange={(e) => setCharge(x, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + x.name} />
+        {changed && !x.off && <input className={'no-reason' + (x.reason.trim().length < 3 ? ' need' : '')} value={x.reason} onChange={(e) => setCharge(x, { reason: e.target.value })} placeholder="Reason for the price *" />}</>}</td>
+      <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
+      <td className="r">{!x.locked && <button type="button" className="no-x" aria-label={(x.off ? 'Put back ' : 'Remove ') + x.name} onClick={() => setCharge(x, { off: !x.off })}>{x.off ? '↺' : '×'}</button>}</td></tr>); };
+  const lineOf = (k) => lines.find((l) => l.key === k);
+  const soCats = CATS.filter((c) => lines.some((l) => l.category === c));
+  const tabs = [['so', '1', 'Build SO', 'What the customer buys · one invoice', lines.length ? lines.length + ' product' + (lines.length === 1 ? '' : 's') : 'empty'],
+    ['po', '2', 'Build PO', 'What we order · one per supplier', pos.length + ' PO' + (pos.length === 1 ? '' : 's')], ['load', '3', 'Build Load', 'How it goes out · trucks and pick-ups', loads.length + ' load' + (loads.length === 1 ? '' : 's')]];
+
   return (
     <>
       <PageHeader title="NEW ORDER" sub={saved ? 'Draft saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : 'Fills in as you go; saved as a draft'} />
       <div className="no">
         <div className="no-main">
           <section className="no-card" aria-label="Customer">
-            <div className="no-ct"><i>1</i>Customer<span className="no-kind"><Seg value={o.kind} set={(v) => setO({ ...o, kind: v })} options={[['order', 'Order'], ['quote', 'Quote']]} /></span></div>
+            <div className="no-ct">Customer<span className="no-kind"><Seg value={o.kind} set={(v) => setO({ ...o, kind: v })} options={[['order', 'Order'], ['quote', 'Quote']]} /></span></div>
             {!o.customer ? (
               <label className="no-f">Company <span className="req">*</span>
                 <input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" autoFocus />
@@ -190,80 +262,125 @@ export default function NewOrder() {
             )}
           </section>
 
+          <div className="no-tabs" role="tablist">{tabs.map(([k, n, t, d, c]) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
+
+          {tab === 'so' && <>
           <section className="no-card" aria-label="Products">
-            <div className="no-ct"><i>2</i>Products</div>
+            <div className="no-ct">Products</div>
             <div className="no-cats">{CATS.filter((c) => catCount(c)).map((c) => <button key={c} type="button" className={'no-cat' + (cat === c ? ' on' : '')} style={{ '--c': COLOR[c] }} onClick={() => { setCat(cat === c ? '' : c); setAll(false); }}><i />{c}</button>)}</div>
             <input type="search" className="no-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={cat ? 'Search ' + cat + ' by name or code…' : 'Search a product by name or code…'} aria-label="Search a product" />
             {cat && q.trim().length < 2 && <button type="button" className={'no-all' + (all ? ' on' : '')} onClick={() => setAll(!all)}><span>{all ? '▾' : '▸'} Show all {cat} products</span><small>{catCount(cat)}</small></button>}
             {shown.length > 0 && <div className="no-res">{shown.map((p) => { const rt = routeOf(p.category); return (
               <div key={p.id} className="no-ri"><div><b>{p.name}</b><small>{p.code} · {p.unit || 'each'}</small></div>
-                <span className="no-from">{rt ? rt.supplier?.name?.replace(' Pty Ltd', '') + ' · ' + (rt.portal || 'email') : 'Direct'}</span>
+                <span className="no-from">{rt ? rt.supplier?.name?.replace(' Pty Ltd', '') + ' · ' + (rt.portal || 'email') : 'Penrith stock'}</span>
                 <span className="no-p">{cash(priceFor(p))}</span><button type="button" className="btn btn-red" onClick={() => add(p)}>Add</button></div>); })}</div>}
             {q.trim().length >= 2 && !shown.length && <p className="no-sub">No product matches.</p>}
           </section>
-
           <section className="no-card" aria-label="On this order">
-            <div className="no-ct"><i>3</i>On this order <small>each material is its own load</small></div>
-            {!groups.length && <p className="no-sub">Nothing yet: pick a material or search, then press Add.</p>}
-            {groups.map((g) => { const rt = routeOf(g.c), a = g.ld.answers || {}; return (
-              <div key={g.c} className="no-grp">
-                <div className="no-gh" style={{ background: HEAD[g.c] }}>{g.c} <small>{g.ls.length} product{g.ls.length === 1 ? '' : 's'} · {cash(g.total)}</small><span>{rt ? 'PO to ' + rt.supplier?.name?.replace(' Pty Ltd', '') + (rt.portal ? ' · ' + rt.portal : '') : 'From Direct'}</span></div>
-                <div className="no-load">
-                  <Seg value={g.ld.fulfil} set={(v) => setLoad(g.c, { fulfil: v })} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />
-                  {g.ld.fulfil === 'delivery' && <label className="no-f no-grow">Site address <span className="req">*</span><input value={g.ld.site || ''} onChange={(e) => setLoad(g.c, { site: e.target.value })} placeholder="Street, suburb, postcode" /></label>}
-                  <label className="no-f">{g.ld.fulfil === 'delivery' ? 'Delivery date' : 'Pick-up date'}{o.kind === 'order' && <span className="req"> *</span>}<input type="date" value={g.ld.date || ''} onChange={(e) => setLoad(g.c, { date: e.target.value })} /></label>
-                  <label className="no-f">Time<select value={g.ld.time || 'Any time'} onChange={(e) => setLoad(g.c, { time: e.target.value })}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
-                </div>
-                {g.c === 'Wafflepods' && g.ld.fulfil === 'delivery' && <div className="no-load no-qs">
-                  <label className="no-f">Location <span className="req">*</span><select value={a.location || ''} onChange={(e) => setAns(g.c, { location: e.target.value })}><option value="">Choose…</option>{WP_LOCATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-                  {(a.location === 'NSW' || a.location === 'ACT') && <label className="no-f">Driving time (hours, one way)<input inputMode="decimal" value={a.hours || ''} onChange={(e) => setAns(g.c, { hours: e.target.value })} /></label>}
-                  <label className="no-f">Scrap pick-up<Seg value={a.scrap || 'no'} set={(v) => setAns(g.c, { scrap: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Trailer access<Seg value={a.trailer || 'yes'} set={(v) => setAns(g.c, { trailer: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Gate code<input value={a.gate || ''} onChange={(e) => setAns(g.c, { gate: e.target.value })} placeholder="Code, or N/A" /></label>
-                </div>}
-                {g.c === 'Concrete' && <div className="no-load no-qs">
-                  <label className="no-f">Plant<select value={a.plant || ''} onChange={(e) => setAns(g.c, { plant: e.target.value })}>{PLANTS.map((p) => <option key={p} value={p}>{p || 'DBM chooses'}</option>)}</select></label>
-                  <label className="no-f">Pour<select value={a.pour || 'Pump'} onChange={(e) => setAns(g.c, { pour: e.target.value })}>{['Pump', 'Line', 'Chute', 'Boom'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Truck<select value={a.truck || 'Any Truck Size'} onChange={(e) => setAns(g.c, { truck: e.target.value })}>{['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Spacing<select value={a.spacing || '15min'} onChange={(e) => setAns(g.c, { spacing: e.target.value })}>{['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Finish<select value={a.message || 'Neat'} onChange={(e) => setAns(g.c, { message: e.target.value })}>{['Message', 'Neat', 'Neat Plus'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Tester<Seg value={a.tester || 'no'} set={(v) => setAns(g.c, { tester: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Coloured<Seg value={a.coloured || 'no'} set={(v) => setAns(g.c, { coloured: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  {a.coloured === 'yes' && <><label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => setAns(g.c, { colour: e.target.value })} /></label><label className="no-f">Max m³ in colour<input inputMode="decimal" value={a.maxColour || ''} onChange={(e) => setAns(g.c, { maxColour: e.target.value })} /></label></>}
-                </div>}
+            <div className="no-ct">On this order</div>
+            {!lines.length && <p className="no-sub">Nothing yet: pick a material or search, then press Add.</p>}
+            {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
+              <div key={c} className="no-grp">
+                <div className="no-gh" style={{ background: HEAD[c] }}>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small></div>
                 <div className="no-tw"><table className="no-t">
                   <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th /></tr></thead>
                   <tbody>
-                    {g.ls.map((l) => { const changed = Math.abs(l.price - l.list) >= 0.005; return (
+                    {ls.map((l) => { const changed = Math.abs(l.price - l.list) >= 0.005; return (
                       <tr key={l.key}><td><b>{l.name}</b><small>{l.code} · {l.unit}</small></td>
                         <td><span className="no-qty"><button type="button" aria-label="Less" onClick={() => setLine(l.key, { qty: Math.max(0, r2(l.qty - 1)) })}>−</button><input value={l.qty} inputMode="decimal" onChange={(e) => setLine(l.key, { qty: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Quantity of ' + l.name} /><button type="button" aria-label="More" onClick={() => setLine(l.key, { qty: r2(l.qty + 1) })}>+</button></span></td>
                         <td className="r"><input className={'no-price' + (changed ? ' ch' : '')} value={l.price} inputMode="decimal" onChange={(e) => setLine(l.key, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + l.name} />
                           {changed && <><small className="no-was">list {cash(l.list)} <button type="button" className="link" onClick={() => setLine(l.key, { price: l.list, reason: '' })}>↺</button></small><input className={'no-reason' + (l.reason.trim().length < 3 ? ' need' : '')} value={l.reason} onChange={(e) => setLine(l.key, { reason: e.target.value })} placeholder="Reason for the price *" /></>}</td>
                         <td className="r"><b>{cash(r2(l.qty * l.price))}</b></td>
-                        <td className="r"><button type="button" className="no-x" aria-label={'Remove ' + l.name} onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>×</button></td></tr>); })}
-                    {g.ch.length > 0 && <tr className="no-chh"><td colSpan="5">ADDITIONAL CHARGES</td></tr>}
-                    {g.ch.map((x) => { const k = g.c + '|' + x.key, changed = Math.abs(x.price - x.list) >= 0.005; return (
-                      <tr key={x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
-                        <td className="r">{x.locked ? cash(x.price) : <><input className={'no-price' + (changed ? ' ch' : '')} value={x.price} disabled={x.off} inputMode="decimal" onChange={(e) => setOver({ ...over, [k]: { ...(over[k] || {}), price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 } })} aria-label={'Price of ' + x.name} />
-                          {changed && !x.off && <input className={'no-reason' + (x.reason.trim().length < 3 ? ' need' : '')} value={x.reason} onChange={(e) => setOver({ ...over, [k]: { ...(over[k] || {}), reason: e.target.value } })} placeholder="Reason for the price *" />}</>}</td>
-                        <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
-                        <td className="r">{!x.locked && <button type="button" className="no-x" aria-label={(x.off ? 'Put back ' : 'Remove ') + x.name} onClick={() => setOver({ ...over, [k]: { ...(over[k] || {}), off: !x.off } })}>{x.off ? '↺' : '×'}</button>}</td></tr>); })}
+                        <td className="r"><button type="button" className="no-x" aria-label={'Remove ' + l.name} onClick={() => removeLine(l.key)}>×</button></td></tr>); })}
+                    {chs.length > 0 && <tr className="no-chh"><td colSpan="5">ADDITIONAL CHARGES <span>(from Build Load)</span></td></tr>}
+                    {chs.map((x) => chargeRow(x))}
                   </tbody>
                 </table></div>
               </div>); })}
             <label className="no-f">Special instructions<input value={o.instructions} onChange={(e) => setO({ ...o, instructions: e.target.value })} placeholder="Gate code, access, anything the driver or supplier should know" /></label>
           </section>
+          </>}
+
+          {tab === 'po' && <section className="no-card" aria-label="Build PO">
+            <div className="no-ct">Build PO <small>{posHand ? 'arranged by hand' : 'one PO per supplier, by itself'}</small>{posHand && <button type="button" className="link no-auto" onClick={() => setPosHand(null)}>Back to automatic</button>}</div>
+            {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
+            {pos.map((P, i) => (
+              <div key={P.uid} className="no-grp">
+                <div className="no-gh" style={{ background: '#1E1A17' }}>PO {i + 1} <small>{P.supplier || 'No supplier yet'}{P.portal ? ' · ' + P.portal : ''}</small>{posHand && <button type="button" className="no-ghx" onClick={() => editPos((Ps) => Ps.filter((x) => x.uid !== P.uid))}>Remove PO</button>}</div>
+                <div className="no-load">
+                  <label className="no-f">Supplier<select value={P.supplier_id || ''} onChange={(e) => { const sp = suppliers.find((x) => String(x.id) === e.target.value); const rt = routes.find((r) => String(r.supplier_id) === e.target.value); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, supplier_id: sp?.id || null, supplier: sp?.name || '', portal: rt?.portal || '' } : x))); }}><option value="">Choose…</option>{suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></label>
+                  <label className="no-f">Deliver to<Seg value={P.deliverTo} set={(v) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, deliverTo: v } : x)))} options={[['site', "Customer's site"], ['penrith', 'Penrith warehouse']]} /></label>
+                  <label className="no-f no-grow">Note to the supplier<input value={P.notes} onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, notes: e.target.value } : x)))} placeholder="Optional" /></label>
+                </div>
+                <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th>Move to</th></tr></thead><tbody>
+                  {Object.entries(P.items).filter(([, v]) => Number(v) > 0).map(([k, v]) => { const l = lineOf(k); if (!l) return null; return (
+                    <tr key={k}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
+                      <td><input className="no-price" value={v} inputMode="decimal" onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 } } : x)))} aria-label={'Order quantity of ' + l.name} /></td>
+                      <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: 0 } } : to !== 'stock' && x.uid === to ? { ...x, items: { ...x.items, [k]: qtyIn(x.items, k) + Number(v) } } : x))); }}>
+                        <option value="">Move…</option>{pos.filter((x) => x.uid !== P.uid).map((x, j) => <option key={x.uid} value={x.uid}>PO {pos.indexOf(x) + 1} · {x.supplier || 'no supplier'}</option>)}<option value="stock">From Penrith stock (no PO)</option></select></td></tr>); })}
+                </tbody></table></div>
+              </div>))}
+            {stockKeys.length > 0 && <div className="no-grp"><div className="no-gh" style={{ background: '#57534E' }}>From Penrith stock <small>no PO</small></div>
+              <div className="no-tw"><table className="no-t"><tbody>{stockKeys.map((k) => { const l = lineOf(k); return (
+                <tr key={k}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
+                  <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; if (to === 'new') editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: { [k]: l.qty } }]); else editPos((Ps) => Ps.map((x) => (x.uid === to ? { ...x, items: { ...x.items, [k]: l.qty } } : x))); }}>
+                    <option value="">Put on a PO…</option>{pos.map((x, j) => <option key={x.uid} value={x.uid}>PO {j + 1} · {x.supplier || 'no supplier'}</option>)}<option value="new">A new PO</option></select></td></tr>); })}</tbody></table></div></div>}
+            {lines.length > 0 && <button type="button" className="btn" onClick={() => editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: {} }])}>+ Add a PO</button>}
+          </section>}
+
+          {tab === 'load' && <section className="no-card" aria-label="Build Load">
+            <div className="no-ct">Build Load <small>{loadsHand ? 'arranged by hand' : 'one load per material, by itself'}</small>{loadsHand && <button type="button" className="link no-auto" onClick={() => setLoadsHand(null)}>Back to automatic</button>}</div>
+            {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
+            {loadCharges.map(({ L, inLoad, cats, ch }) => { const a = L.answers || {}; return (
+              <div key={L.uid} className="no-grp">
+                <div className="no-gh" style={{ background: cats.length === 1 ? HEAD[cats[0]] : '#1E1A17' }}>Load {L.n} <small>{cats.join(' · ') || 'empty'}</small>{loads.length > 1 && <button type="button" className="no-ghx" onClick={() => removeLoad(L.uid)}>Remove load</button>}</div>
+                <div className="no-load">
+                  <Seg value={L.fulfil} set={(v) => setLoad(L.uid, { fulfil: v })} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />
+                  {L.fulfil === 'delivery' && <label className="no-f no-grow">Site address <span className="req">*</span><input value={L.site || ''} onChange={(e) => setLoad(L.uid, { site: e.target.value })} placeholder="Street, suburb, postcode" /></label>}
+                  <label className="no-f">{L.fulfil === 'delivery' ? 'Delivery date' : 'Pick-up date'}{o.kind === 'order' && <span className="req"> *</span>}<input type="date" value={L.date || ''} onChange={(e) => setLoad(L.uid, { date: e.target.value })} /></label>
+                  <label className="no-f">Time<select value={L.time || 'Any time'} onChange={(e) => setLoad(L.uid, { time: e.target.value })}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
+                </div>
+                {cats.includes('Wafflepods') && L.fulfil === 'delivery' && <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
+                  <label className="no-f">Location <span className="req">*</span><select value={a.location || ''} onChange={(e) => setAns(L.uid, { location: e.target.value })}><option value="">Choose…</option>{WP_LOCATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                  {(a.location === 'NSW' || a.location === 'ACT') && <label className="no-f">Driving time (hours, one way)<input inputMode="decimal" value={a.hours || ''} onChange={(e) => setAns(L.uid, { hours: e.target.value })} /></label>}
+                  <label className="no-f">Scrap pick-up<Seg value={a.scrap || 'no'} set={(v) => setAns(L.uid, { scrap: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  <label className="no-f">Trailer access<Seg value={a.trailer || 'yes'} set={(v) => setAns(L.uid, { trailer: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  <label className="no-f">Gate code<input value={a.gate || ''} onChange={(e) => setAns(L.uid, { gate: e.target.value })} placeholder="Code, or N/A" /></label>
+                </div>}
+                {cats.includes('Concrete') && <div className="no-load no-qs"><b className="no-qt">Concrete</b>
+                  <label className="no-f">Plant<select value={a.plant || ''} onChange={(e) => setAns(L.uid, { plant: e.target.value })}>{PLANTS.map((p) => <option key={p} value={p}>{p || 'DBM chooses'}</option>)}</select></label>
+                  <label className="no-f">Pour<select value={a.pour || 'Pump'} onChange={(e) => setAns(L.uid, { pour: e.target.value })}>{['Pump', 'Line', 'Chute', 'Boom'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Truck<select value={a.truck || 'Any Truck Size'} onChange={(e) => setAns(L.uid, { truck: e.target.value })}>{['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Spacing<select value={a.spacing || '15min'} onChange={(e) => setAns(L.uid, { spacing: e.target.value })}>{['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Finish<select value={a.message || 'Neat'} onChange={(e) => setAns(L.uid, { message: e.target.value })}>{['Message', 'Neat', 'Neat Plus'].map((x) => <option key={x}>{x}</option>)}</select></label>
+                  <label className="no-f">Tester<Seg value={a.tester || 'no'} set={(v) => setAns(L.uid, { tester: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  <label className="no-f">Coloured<Seg value={a.coloured || 'no'} set={(v) => setAns(L.uid, { coloured: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
+                  {a.coloured === 'yes' && <><label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => setAns(L.uid, { colour: e.target.value })} /></label><label className="no-f">Max m³ in colour<input inputMode="decimal" value={a.maxColour || ''} onChange={(e) => setAns(L.uid, { maxColour: e.target.value })} /></label></>}
+                </div>}
+                <div className="no-tw"><table className="no-t"><thead><tr><th>On this load</th><th>Sold</th><th>On it</th><th>Move to</th></tr></thead><tbody>
+                  {lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => (
+                    <tr key={l.key}><td><b>{l.name}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
+                      <td><input className="no-price" value={qtyIn(L.items, l.key)} inputMode="decimal" onChange={(e) => setLoadQty(L.uid, l.key, Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)} aria-label={'Quantity of ' + l.name + ' on load ' + L.n} /></td>
+                      <td><select className="no-move" value="" onChange={(e) => e.target.value && moveToLoad(l.key, L.uid, e.target.value)}><option value="">Move…</option>{loads.filter((x) => x.uid !== L.uid).map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}</select></td></tr>))}
+                  {ch.length > 0 && <tr className="no-chh"><td colSpan="4">ADDITIONAL CHARGES FOR THIS LOAD</td></tr>}
+                  {ch.map((x) => <tr key={x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td><td colSpan="2">{x.off ? 'removed (Build SO)' : cash(r2(x.qty * x.price))}</td></tr>)}
+                </tbody></table></div>
+              </div>); })}
+            {lines.filter((l) => Math.abs(loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0) - l.qty) > 1e-6).map((l) => <p key={l.key} className="no-miss">{l.name}: {loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0)} of {l.qty} on loads.</p>)}
+            {lines.length > 0 && <button type="button" className="btn" onClick={addLoad}>+ Add a load</button>}
+          </section>}
         </div>
 
         <aside className="no-side" aria-label="The order">
           <section className="no-card">
             <div className="no-ct">The {o.kind === 'quote' ? 'quote' : 'order'}</div>
             {o.customer ? <div className="no-sum-c"><b>{o.customer.name}</b> · {o.customer.terms === 'account' ? 'Account' : 'COD'}</div> : <p className="no-sub">No company yet.</p>}
-            {groups.map((g) => <div key={g.c} className="no-sl"><span><i style={{ background: COLOR[g.c] }} />{g.c} · {g.ld.fulfil === 'delivery' ? 'delivery' : 'pick-up'}{g.ld.date ? ' ' + new Date(g.ld.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric' }) : ''}</span><b>{cash(g.total)}</b></div>)}
-            <div className="no-tot"><div className="no-sl"><span>Items ex GST</span><b>{cash(sub)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
+            {loadCharges.map(({ L, cats, inLoad, ch }) => <div key={L.uid} className="no-sl"><span><i style={{ background: COLOR[cats[0]] || '#78716C' }} />Load {L.n} · {cats.join(', ')} · {L.fulfil === 'delivery' ? 'delivery' : 'pick-up'}{L.date ? ' ' + new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric' }) : ''}</span></div>)}
+            {pos.length > 0 && <div className="no-what">{pos.map((P, i) => 'PO ' + (i + 1) + ' to ' + (P.supplier || '…').replace(' Pty Ltd', '')).join(' · ')}{stockKeys.length ? ' · from Penrith stock' : ''}</div>}
+            <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
             {o.customer?.on_hold && <div className="no-alert"><b>On hold:</b> this customer is on hold. Check before placing.</div>}
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}
-            {o.kind === 'order' && groups.length > 0 && <div className="no-what">On placing: the invoice to the Xero queue{groups.map((g) => { const rt = routeOf(g.c); return rt ? ' · ' + g.c + ' PO to ' + rt.supplier?.name?.replace(' Pty Ltd', '') : ''; }).join('')}</div>}
             {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
             {missing && !msg && <p className="no-miss">{missing}</p>}
             <button type="button" className="btn btn-red btn-big" disabled={busy} onClick={place}>{busy ? 'Placing…' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>

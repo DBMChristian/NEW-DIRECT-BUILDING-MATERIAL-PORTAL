@@ -507,3 +507,18 @@ a.ad-row:hover{background:#FAFAF9}
 @media (max-width:1000px){.no{grid-template-columns:1fr}.no-side{position:static}}
 .hm-ref{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#57534E}
 .hm-cdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+
+/* New Order: the three tabs (13 Nov 2026) */
+.no-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.no-tab{display:flex;align-items:center;gap:10px;text-align:left;background:#fff;border:1px solid #D6D3D1;border-radius:12px;padding:10px 12px;font:inherit;cursor:pointer;color:var(--ink)}
+.no-tab i{font-style:normal;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;border:2px solid #A8A29E;font-weight:800;font-size:12px;flex:none}
+.no-tab span{flex:1;min-width:0}.no-tab b{display:block;font-size:14px}.no-tab small{display:block;font-size:11.5px;color:#57534E}
+.no-tab em{font-style:normal;font-size:11px;font-weight:700;border:1px solid #D6D3D1;border-radius:5px;padding:1px 6px;color:#57534E;white-space:nowrap}
+.no-tab.on{background:#FEF2F2;border-color:var(--red);box-shadow:inset 0 -3px 0 var(--red)}.no-tab.on i{background:var(--red);border-color:var(--red);color:#fff}
+.no-ghx{margin-left:auto;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;font:inherit;font-size:11.5px;font-weight:700;padding:3px 8px;cursor:pointer;text-transform:none;letter-spacing:0}
+.no-gh .no-ghx+span{margin-left:8px}
+.no-auto{margin-left:auto;font-size:12.5px}
+.no-move{height:30px;border:1px solid #D6D3D1;border-radius:7px;font:inherit;font-size:12.5px;padding:0 6px;max-width:220px}
+.no-qt{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#57534E;width:100%}
+.no-chh span{font-weight:600;letter-spacing:0;color:#A8A29E;text-transform:none}
+@media (max-width:820px){.no-tabs{grid-template-columns:1fr}}

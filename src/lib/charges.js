@@ -30,7 +30,7 @@ export function chargesFor(cat, lines, load, ctx) {
   const del = load.fulfil === 'delivery', a = load.answers || {};
   if (DELIVERY[cat] != null && del) out.push({ key: 'del', code: 'DELIVERY', name: 'Delivery: ' + cat, unit: 'delivery', qty: 1, price: DELIVERY[cat] });
   if (cat === 'Reinforcement' && del) out.push({ key: 'del', code: 'DELIVERY', name: 'Delivery: Reinforcement', unit: 'truck', qty: 1, price: REO_TRUCK });
-  if (cat === 'Rediwall') {
+  if (cat === 'Rediwall' && !ctx.noImpc) {
     const cents = Math.round(goods.reduce((s, l) => s + r2((Number(l.qty) || 0) * (Number(l.price) || 0)), 0) * 100);
     const amt = Math.floor(cents * IMPC_RATE + 0.5 + 1e-9) / 100;
     if (amt > 0) out.push({ key: 'impc', code: 'IMPC', name: 'Supply chain impact charge (7.5%)', unit: 'charge', qty: 1, price: amt, locked: true });
@@ -58,4 +58,12 @@ export function chargesFor(cat, lines, load, ctx) {
     if (a.coloured === 'yes') { add('CR/COLOUR', Number(a.maxColour) > 0 ? Number(a.maxColour) : 1); if (m3 > 0) add('CR/Washout', Math.ceil(m3 / 6)); }
   }
   return out;
+}
+
+/* the supply chain impact charge, once for the order: 7.5% of all its Rediwall products */
+export function impcFor(lines) {
+  const goods = lines.filter((l) => l.category === 'Rediwall'); if (!goods.length) return null;
+  const cents = Math.round(goods.reduce((s, l) => s + r2((Number(l.qty) || 0) * (Number(l.price) || 0)), 0) * 100);
+  const amt = Math.floor(cents * IMPC_RATE + 0.5 + 1e-9) / 100;
+  return amt > 0 ? { key: 'impc', code: 'IMPC', name: 'Supply chain impact charge (7.5%)', unit: 'charge', qty: 1, price: amt, locked: true, cat: 'Rediwall' } : null;
 }

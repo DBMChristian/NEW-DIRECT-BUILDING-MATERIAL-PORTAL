@@ -531,3 +531,7 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 /* concrete grouped in the picker (13 Nov 2026) */
 .no-rg{position:sticky;top:0;z-index:1;background:#FEF9C3;color:#854D0E;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;border-top:1px solid #FDE68A}
 .no-rg small{font-weight:600;letter-spacing:0;margin-left:4px}.no-rg-x{background:#F5F5F4;color:#44403C;border-top:2px solid #D6D3D1}
+
+/* Products: concrete's groups inside its section (13 Nov 2026) */
+.pp-sub td{background:#FEF9C3;color:#854D0E;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px 6px 18px;border-left:4px solid #CA8A04}
+.pp-sub small{font-weight:600;letter-spacing:0;margin-left:4px}.pp-sub-x td{background:#F5F5F4;color:#44403C;border-left-color:#A8A29E}

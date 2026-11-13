@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
+import { CON_GROUPS, concreteGroup, mpa } from '../lib/concrete.js';
 
 /* New Order (13 Nov 2026), with the previous portal's three tabs under the customer:
    1 Build SO: what the customer buys, one invoice (products, prices with reasons, the additional charges);
@@ -24,22 +25,6 @@ let seq = 0; const key = () => 'k' + Date.now().toString(36) + (seq++);
 function Seg({ value, set, options }) {
   return <div className="no-seg" role="group">{options.map(([v, l]) => <button key={v} type="button" className={value === v ? 'on' : ''} aria-pressed={value === v} onClick={() => set(v)}>{l}</button>)}</div>;
 }
-
-/* concrete in the picker, grouped as the plants sell it (13 Nov 2026): the mixes by kind, then the additional charges
-   (additives, colours and the rest that are not a mix) */
-const CON_GROUPS = ['10mm Standard', '20mm Standard', 'Shotcrete', 'Long line', 'Wall', 'Blockfill', 'Other mixes', 'Additional charges'];
-export const concreteGroup = (p) => {
-  const c = String(p.code || '').toUpperCase(), n = String(p.name || '').toUpperCase();
-  if (!/^CR\d/.test(c)) return 'Additional charges';
-  if (/SHOTCRETE/.test(c + n)) return 'Shotcrete';
-  if (/LONG ?LINE/.test(c + ' ' + n)) return 'Long line';
-  if (/WALL/.test(c + n)) return 'Wall';
-  if (/BLOCK ?FILL/.test(c + ' ' + n)) return 'Blockfill';
-  if (/^CR\d+\/10\/(90|STANDARD)/.test(c) || /10MM$/.test(n.trim())) return '10mm Standard';
-  if (/^CR\d+\/20\/(90|STANDARD)/.test(c) || /20MM$/.test(n.trim())) return '20mm Standard';
-  return 'Other mixes';
-};
-const mpa = (p) => Number((/^CR(\d+)/i.exec(p.code || '') || [])[1] || 999);
 
 const blankLoad = (n) => ({ uid: key(), fulfil: 'delivery', site: '', date: '', time: 'Any time', answers: {}, items: {}, n });
 const qtyIn = (map, k) => Number((map || {})[k] || 0);

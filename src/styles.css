@@ -545,3 +545,8 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .pp-sub-wafflepods td{background:#EDE9FE;color:#5B21B6;border-left-color:#7C3AED}
 .no-rg-wafflepods{background:#EDE9FE;color:#5B21B6;border-top-color:#DDD6FE}
 .pp-sub-wafflepods.pp-sub-x td{background:#F5F5F4;color:#44403C;border-left-color:#A8A29E}
+
+/* Rediwall's sizes in its own colour (13 Nov 2026) */
+.pp-sub-rediwall td{background:#FFEDD5;color:#9A3412;border-left-color:#EA580C}
+.no-rg-rediwall{background:#FFEDD5;color:#9A3412;border-top-color:#FED7AA}
+.pp-sub-rediwall.pp-sub-x td{background:#F5F5F4;color:#44403C;border-left-color:#A8A29E}

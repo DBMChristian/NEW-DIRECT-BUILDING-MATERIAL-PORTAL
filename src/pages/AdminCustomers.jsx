@@ -194,7 +194,7 @@ export default function AdminCustomers() {
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table cu-table">
-            <thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th className="r">Awaiting approval</th><th className="r">Awaiting payment</th><th className="r">Invoiced</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th className="r">Awaiting approval</th><th className="r">Awaiting payment</th><th className="r">Total owed</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
             <tbody>
               {rows !== null && !list.length && <tr><td colSpan="12" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((c) => {
@@ -210,7 +210,7 @@ export default function AdminCustomers() {
                       <td><Limit c={c} canEdit={canEdit} onSave={setField} /></td>
                       <td className="r cu-money">{cash(c.xero_awaiting_approval) || <span className="pp-muted">—</span>}</td>
                       <td className={'r cu-money' + (c.credit_limit != null && Number(c.xero_awaiting_payment) > Number(c.credit_limit) ? ' cu-over' : '')} title={c.credit_limit != null && Number(c.xero_awaiting_payment) > Number(c.credit_limit) ? 'More than the credit limit' : ''}>{cash(c.xero_awaiting_payment) || <span className="pp-muted">—</span>}{Number(c.xero_overdue) > 0 && <small className="cu-overdue">{cash(c.xero_overdue)} overdue</small>}</td>
-                      <td className="r cu-money cu-inv">{cash(c.xero_invoiced) || <span className="pp-muted">—</span>}</td>
+                      <td className={'r cu-money cu-total' + (c.credit_limit != null && Number(c.xero_awaiting_approval) + Number(c.xero_awaiting_payment) > Number(c.credit_limit) ? ' cu-over' : '')} title="Awaiting approval + awaiting payment">{cash(Number(c.xero_awaiting_approval) + Number(c.xero_awaiting_payment)) || <span className="pp-muted">—</span>}</td>
                       <td className="cu-terms">{termsText(c) || <span className="pp-muted" title="No terms on this contact in Xero: Xero's organisation default applies">{status?.default_terms ? termsText(status.default_terms) + ' (default)' : 'None in Xero'}</span>}</td>
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>

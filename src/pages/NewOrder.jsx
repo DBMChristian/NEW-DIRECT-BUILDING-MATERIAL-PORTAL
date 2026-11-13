@@ -283,16 +283,16 @@ export default function NewOrder() {
       if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
     for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = L.answers || {}, no = (f) => a[f] == null || String(a[f]).trim() === '';
       if (cs.has('Wafflepods') && L.fulfil === 'delivery') {
-        if (no('location')) return 'Waffle pods: choose the location.';
-        if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Waffle pods: enter the driving time.';
-        if (no('scrap')) return 'Waffle pods: scrap pick-up, Yes or No.';
-        if (no('trailer')) return 'Waffle pods: trailer access, Yes or No.';
-        if (no('gate')) return 'Waffle pods: enter the gate code (or N/A).'; }
+        if (no('location')) return 'Build PO: waffle pods, choose the location.';
+        if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Build PO: waffle pods, enter the driving time.';
+        if (no('scrap')) return 'Build PO: waffle pods, scrap pick-up Yes or No.';
+        if (no('trailer')) return 'Build PO: waffle pods, trailer access Yes or No.';
+        if (no('gate')) return 'Build PO: waffle pods, enter the gate code (or N/A).'; }
       if (cs.has('Concrete')) {
-        for (const [f, t] of [['pour', 'the pour'], ['truck', 'the truck'], ['spacing', 'the spacing'], ['message', 'the finish']]) if (no(f)) return 'Concrete: choose ' + t + '.';
-        if (no('tester')) return 'Concrete: tester, Yes or No.';
-        if (no('coloured')) return 'Concrete: coloured, Yes or No.';
-        if (a.coloured === 'yes' && no('colour')) return 'Concrete: enter the colour.'; } }
+        for (const [f, t] of [['pour', 'the pour'], ['truck', 'the truck'], ['spacing', 'the spacing'], ['message', 'the finish']]) if (no(f)) return 'Build PO: concrete, choose ' + t + '.';
+        if (no('tester')) return 'Build PO: concrete, tester Yes or No.';
+        if (no('coloured')) return 'Build PO: concrete, coloured Yes or No.';
+        if (a.coloured === 'yes' && no('colour')) return 'Build PO: concrete, enter the colour.'; } }
     const note = allCharges.find((x) => !x.off && x.note); if (note) return 'Build Load: ' + note.note + '.';
     for (const [i, P] of pos.entries()) { if (!P.supplier_id) return 'Build PO: choose the supplier of PO ' + (i + 1) + '.';
       if (o.kind === 'order' && P.send == null) return 'Build PO: choose Send Yes or No on PO ' + (i + 1) + ' (' + P.supplier + ').';
@@ -515,8 +515,6 @@ export default function NewOrder() {
               <div key={c} className="no-grp">
                 <div className="no-gh no-ghb" style={{ background: HEAD[c] }}><button type="button" className="no-fold" aria-expanded={!folded[c]} aria-label={(folded[c] ? 'Expand ' : 'Minimise ') + c} onClick={() => setFolded((f) => ({ ...f, [c]: !f[c] }))}>{folded[c] ? '▸' : '▾'}</button>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small>{(() => { const cs = r2(ls.reduce((t, l) => t + costOf(l), 0) + chs.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sum - cs); return <span className="no-ghp">Profit {cash(pr)} · {pct(pr, sum)}%</span>; })()}</div>
                 {!folded[c] && <>
-                {c === 'Wafflepods' && catDelivery(c) && questions('Wafflepods', catAnswers(c), (ch) => setCatAns(c, ch))}
-                {c === 'Concrete' && questions('Concrete', catAnswers(c), (ch) => setCatAns(c, ch))}
                 <div className="no-tw"><table className="no-t">
                   <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th className="r">Cost</th><th className="r">Profit $</th><th className="r">Profit %</th><th /></tr></thead>
                   <tbody>
@@ -558,6 +556,9 @@ export default function NewOrder() {
                   <div className={'no-f' + (o.kind === 'order' && P.send == null ? ' no-need' : '')}>Send order <span className="req">*</span><Seg value={P.send == null ? '' : P.send ? 'yes' : 'no'} set={(v) => setPoSend(P, v === 'yes')} options={[['yes', 'Yes'], ['no', 'No']]} /></div>
                   <label className="no-f no-grow">Note to the supplier<input value={P.notes} onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, notes: e.target.value } : x)))} placeholder="Optional" /></label>
                 </div>
+                {(() => { const cats = new Set(Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).map((k) => lineOf(k)?.category)); return <>
+                  {cats.has('Concrete') && questions('Concrete', catAnswers('Concrete'), (ch) => setCatAns('Concrete', ch))}
+                  {cats.has('Wafflepods') && catDelivery('Wafflepods') && questions('Wafflepods', catAnswers('Wafflepods'), (ch) => setCatAns('Wafflepods', ch))}</>; })()}
                 <div className="no-poem">{P.send === false ? <span>Not sent: kept with the order only.</span> : (() => { const em = emailOf(P); return em.to ? <span>Email to <b>{em.to}</b>{em.cc ? <> · CC {em.cc}</> : null}{P.portal ? ' · ' + P.portal : ''}</span> : <span className="no-warn">No email for {P.supplier || 'this supplier'}: add it in Admin › Suppliers.</span>; })()}
                   <button type="button" className="btn" onClick={() => setPreview(poMail(P, ''))}>Preview email</button></div>
                 <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th>Move to</th></tr></thead><tbody>

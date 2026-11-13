@@ -219,11 +219,18 @@ export default function NewOrder() {
     for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) return 'Build Load: load ' + L.n + ' is empty: remove it.';
       if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
       if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
-    for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = L.answers || {};
-      if (cs.has('Wafflepods') && L.fulfil === 'delivery' && !a.location) return 'Waffle pods: choose the location (Build SO).';
-      if (cs.has('Wafflepods') && L.fulfil === 'delivery' && (a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Waffle pods: enter the driving time.';
-      if (cs.has('Wafflepods') && L.fulfil === 'delivery' && !String(a.gate || '').trim()) return 'Waffle pods: enter the gate code (or N/A).';
-      if (cs.has('Concrete') && a.coloured === 'yes' && !String(a.colour || '').trim()) return 'Concrete: enter the colour.'; }
+    for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = L.answers || {}, no = (f) => a[f] == null || String(a[f]).trim() === '';
+      if (cs.has('Wafflepods') && L.fulfil === 'delivery') {
+        if (no('location')) return 'Waffle pods: choose the location.';
+        if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Waffle pods: enter the driving time.';
+        if (no('scrap')) return 'Waffle pods: scrap pick-up, Yes or No.';
+        if (no('trailer')) return 'Waffle pods: trailer access, Yes or No.';
+        if (no('gate')) return 'Waffle pods: enter the gate code (or N/A).'; }
+      if (cs.has('Concrete')) {
+        for (const [f, t] of [['pour', 'the pour'], ['truck', 'the truck'], ['spacing', 'the spacing'], ['message', 'the finish']]) if (no(f)) return 'Concrete: choose ' + t + '.';
+        if (no('tester')) return 'Concrete: tester, Yes or No.';
+        if (no('coloured')) return 'Concrete: coloured, Yes or No.';
+        if (a.coloured === 'yes' && no('colour')) return 'Concrete: enter the colour.'; } }
     const note = allCharges.find((x) => !x.off && x.note); if (note) return 'Build Load: ' + note.note + '.';
     for (const P of pos) if (!P.supplier_id) return 'Build PO: choose the supplier of each PO.';
     return '';
@@ -247,7 +254,7 @@ export default function NewOrder() {
       const lineId = Object.fromEntries(lines.map((l, i) => [l.key, pl.data[i].id]));
       if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }); if (r.error) throw r.error; }
       for (const [i, x] of loadCharges.entries()) { const L = x.L;
-        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: { ...(x.cats.includes('Concrete') ? { pour: 'Pump', truck: 'Any Truck Size', spacing: '15min', message: 'Neat', tester: 'no', coloured: 'no' } : {}), ...(x.cats.includes('Wafflepods') ? { scrap: 'no', trailer: 'yes' } : {}), ...(L.answers || {}) }, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
+        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: L.answers || {}, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
         if (ld.error) throw ld.error;
         const its = x.inLoad.map((l) => ({ load_id: ld.data.id, line_id: lineId[l.key], qty: l.qty }));
         if (its.length) { const r = await supabase.from('order_load_items').insert(its); if (r.error) throw r.error; }
@@ -315,24 +322,24 @@ export default function NewOrder() {
 
   /* the waffle pod and concrete questions (as the previous form asks them), in Build SO for the material and in Build
      Load for each load; asked once in Build SO they go on every load carrying that material */
-  const questions = (cat, a, set) => (cat === 'Wafflepods'
-    ? <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
-                  <label className="no-f">Location <span className="req">*</span><select value={a.location || ''} onChange={(e) => set({ location: e.target.value })}><option value="">Choose…</option>{WP_LOCATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-                  {(a.location === 'NSW' || a.location === 'ACT') && <label className="no-f">Driving time (hours, one way)<input inputMode="decimal" value={a.hours || ''} onChange={(e) => set({ hours: e.target.value })} /></label>}
-                  <label className="no-f">Scrap pick-up<Seg value={a.scrap || 'no'} set={(v) => set({ scrap: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Trailer access<Seg value={a.trailer || 'yes'} set={(v) => set({ trailer: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Gate code<input value={a.gate || ''} onChange={(e) => set({ gate: e.target.value })} placeholder="Code, or N/A" /></label>
-                </div>
-    : <div className="no-load no-qs"><b className="no-qt">Concrete</b>
-                  
-                  <label className="no-f">Pour<select value={a.pour || 'Pump'} onChange={(e) => set({ pour: e.target.value })}>{['Pump', 'Line', 'Chute', 'Boom'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Truck<select value={a.truck || 'Any Truck Size'} onChange={(e) => set({ truck: e.target.value })}>{['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Spacing<select value={a.spacing || '15min'} onChange={(e) => set({ spacing: e.target.value })}>{['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Finish<select value={a.message || 'Neat'} onChange={(e) => set({ message: e.target.value })}>{['Message', 'Neat', 'Neat Plus'].map((x) => <option key={x}>{x}</option>)}</select></label>
-                  <label className="no-f">Tester<Seg value={a.tester || 'no'} set={(v) => set({ tester: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  <label className="no-f">Coloured<Seg value={a.coloured || 'no'} set={(v) => set({ coloured: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  {a.coloured === 'yes' && <label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => set({ colour: e.target.value })} /></label>}
-                </div>);
+  const questions = (cat, a, set) => {
+    const need = (v) => (v == null || String(v).trim() === '' ? ' no-need' : '');
+    const pick = (f, label, opts) => <label className={'no-f' + need(a[f])}>{label} <span className="req">*</span><select value={a[f] || ''} onChange={(e) => set({ [f]: e.target.value })}><option value="">Choose…</option>{opts.map((x) => (Array.isArray(x) ? <option key={x[0]} value={x[0]}>{x[1]}</option> : <option key={x}>{x}</option>))}</select></label>;
+    const yn = (f, label) => <div className={'no-f' + need(a[f])}>{label} <span className="req">*</span><Seg value={a[f] || ''} set={(v) => set({ [f]: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>;
+    const text = (f, label, ph) => <label className={'no-f' + need(a[f])}>{label} <span className="req">*</span><input value={a[f] || ''} onChange={(e) => set({ [f]: e.target.value })} placeholder={ph} /></label>;
+    if (cat === 'Wafflepods') return (
+      <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
+        {pick('location', 'Location', WP_LOCATIONS)}
+        {(a.location === 'NSW' || a.location === 'ACT') && text('hours', 'Driving time (hours, one way)', 'e.g. 2.5')}
+        {yn('scrap', 'Scrap pick-up')}{yn('trailer', 'Trailer access')}{text('gate', 'Gate code', 'Code, or N/A')}
+      </div>);
+    return (
+      <div className="no-load no-qs"><b className="no-qt">Concrete</b>
+        {pick('pour', 'Pour', ['Pump', 'Line', 'Chute', 'Boom'])}{pick('truck', 'Truck', ['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'])}
+        {pick('spacing', 'Spacing', ['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'])}{pick('message', 'Finish', ['Message', 'Neat', 'Neat Plus'])}
+        {yn('tester', 'Tester')}{yn('coloured', 'Coloured')}{a.coloured === 'yes' && text('colour', 'Colour', 'e.g. Charcoal')}
+      </div>);
+  };
   const catAnswers = (c) => (loads.find((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)) || {}).answers || {};
   const setCatAns = (c, ch) => loads.filter((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)).forEach((L) => setAns(L.uid, ch));
   const catDelivery = (c) => loads.some((L) => L.fulfil === 'delivery' && lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0));

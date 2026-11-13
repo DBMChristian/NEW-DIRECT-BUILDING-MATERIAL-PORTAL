@@ -52,6 +52,7 @@ export default function NewOrder() {
   const [loadInfo, setLoadInfo] = useState({});    /* the automatic loads' day, site, questions, by material */
   const [posHand, setPosHand] = useState(null);
   const [posSend, setPosSend] = useState({});   /* Send Yes/No of the automatic POs */
+  const [posFulfil, setPosFulfil] = useState({});   /* Delivery or pick-up of the automatic POs */
   const [preview, setPreview] = useState(null);     /* null: one PO per supplier by itself; else the POs as arranged */
   const [over, setOver] = useState({});            /* a charge typed over: { 'load|key': { price, qty, reason, off } } */
   const [notes, setNotes] = useState([]);
@@ -123,24 +124,9 @@ export default function NewOrder() {
     setLoadsHand((Ls) => (Ls || arrangeLoads()).map((L) => (L.uid === uid ? { ...L, ...ch } : L))); };
   const setAns = (uid, ch) => { const L = loads.find((x) => x.uid === uid); setLoad(uid, { answers: { ...(L?.answers || {}), ...ch } }); };
   const setLoadQty = (uid, k, v) => setLoadsHand((Ls) => (Ls || arrangeLoads().map((L, i) => ({ ...L, uid: loads[i].uid }))).map((L) => (L.uid === uid ? { ...L, items: { ...L.items, [k]: v } } : L)));
-  /* Delivery or pick-up on one PO changes only that PO's products (13 Nov 2026): on a load shared with other POs'
-     products, its products move to a load of their own (same site, day, time and answers) with the new choice */
-  const setPoFulfil = (P, v) => {
-    const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0); if (!ks.length) return;
-    setLoadsHand((Ls0) => {
-      let Ls = (Ls0 || loads.map((L) => ({ ...L, auto: undefined }))).map((L) => ({ ...L, items: { ...L.items } }));
-      const add = [];
-      Ls.forEach((L) => {
-        const mine = ks.filter((k) => qtyIn(L.items, k) > 0); if (!mine.length || L.fulfil === v) return;
-        const others = Object.keys(L.items).some((k) => qtyIn(L.items, k) > 0 && !ks.includes(k));
-        if (!others) { L.fulfil = v; return; }
-        const nl = { ...L, uid: key(), fulfil: v, items: {} };
-        mine.forEach((k) => { nl.items[k] = qtyIn(L.items, k); L.items[k] = 0; });
-        add.push(nl);
-      });
-      return [...Ls, ...add].map((L, i) => ({ ...L, n: i + 1 }));
-    });
-  };
+  /* a PO's own Delivery or pick-up (13 Nov 2026): what the supplier is told; the loads keep theirs */
+  const poFulfil = (P) => P.fulfil || posFulfil[P.uid] || 'delivery';
+  const setPoFulfil = (P, v) => { if (posHand) editPos((Ps) => Ps.map((x) => (x.uid === P.uid ? { ...x, fulfil: v } : x))); else setPosFulfil((m) => ({ ...m, [P.uid]: v })); };
   const addLoad = () => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, blankLoad(base.length + 1, headLoad)]; });
   const removeLoad = (uid) => setLoadsHand((Ls) => (Ls || loads.map((L) => ({ ...L, auto: undefined }))).filter((L) => L.uid !== uid).map((L, i) => ({ ...L, n: i + 1 })));
   const moveToLoad = (k, from, to) => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); const q0 = qtyIn(base.find((L) => L.uid === from)?.items, k);
@@ -154,10 +140,10 @@ export default function NewOrder() {
       /* OrderSteel takes one material per order (Rediwall, Hebel, BlueDeck, reinforcement…): one PO per material there */
       const pc = (rt.portal || '') === 'OrderSteel' ? l.category : '', uid = 'auto-' + rt.supplier_id + '-' + rt.portal + (pc ? '-' + pc : '');
       let P = out.find((x) => x.uid === uid);
-      if (!P) { P = { uid, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', cat: pc, deliverTo: 'site', notes: '', send: (posSend[uid] ?? null), items: {} }; out.push(P); }
+      if (!P) { P = { uid, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', cat: pc, deliverTo: 'site', notes: '', send: (posSend[uid] ?? null), fulfil: posFulfil[uid] || 'delivery', items: {} }; out.push(P); }
       P.items[l.key] = l.qty; });
     return out;
-  }, [posHand, lines, routes, posSend]);
+  }, [posHand, lines, routes, posSend, posFulfil]);
   const arrangePos = () => posHand || pos.map((P) => ({ ...P, uid: key() }));
   const editPos = (fn) => setPosHand((Ps) => fn(Ps || pos.map((P) => ({ ...P }))));
   const stockKeys = lines.filter((l) => !pos.some((P) => qtyIn(P.items, l.key) > 0)).map((l) => l.key);
@@ -198,7 +184,7 @@ export default function NewOrder() {
     const d = L.date ? new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
     return { subject: (number || 'PO') + (orderNo ? ' · ' + orderNo : '') + ' · Direct Building Material · ' + (o.customer?.name || '') + (d ? ' · ' + d : ''),
       html: poEmailHtml({ po: number, supplier: P.supplier, portal: P.portal, order: orderNo || 'number given on placing', customer: o.customer?.name, deliverTo: P.deliverTo, site: L.site || headSite, date: d, time: L.time,
-        fulfil: L.fulfil, contact: [o.contact_name, phoneOut(o)].filter(Boolean).join(' · '), note: P.notes,
+        fulfil: poFulfil(P), contact: [o.contact_name, phoneOut(o)].filter(Boolean).join(' · '), note: P.notes,
         lines: [...ks.map((k) => { const l = lineOf(k); return { code: l.code, name: lineName(l), qty: Number(P.items[k]), unit: l.unit }; }),
           ...poExtraMerged(P, ks).filter((x) => x.asItem).map((x) => ({ code: x.code, name: x.name, qty: x.qty, unit: x.unit }))],
         /* the additional charges of its materials on its loads (the free bags with the lines), and their questions */
@@ -390,7 +376,7 @@ export default function NewOrder() {
         if (chs.length) { const r = await supabase.from('order_lines').insert(chs).select('id, charge_key'); if (r.error) throw r.error; (r.data || []).forEach((row) => { chId[L.uid + '|' + row.charge_key] = row.id; }); }
       }
       for (const [i, P] of pos.entries()) {
-        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', notes: P.notes || '', send: P.send ?? null, sort: i }).select('id').single();
+        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', fulfil: poFulfil(P), notes: P.notes || '', send: P.send ?? null, sort: i }).select('id').single();
         if (pr.error) throw pr.error;
         const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0);
         const its = [...ks.map((k) => ({ po_id: pr.data.id, line_id: lineId[k], qty: Number(P.items[k]), unit_cost: unitCost(lineOf(k)) })),
@@ -401,7 +387,7 @@ export default function NewOrder() {
     } catch (e) { setMsg({ bad: true, text: 'Not saved: ' + (e.message || e) }); return o.id; }
     finally { busyRef.current = false; }
   };
-  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o, posSend,  lines, loadsHand, loadInfo, posHand, over]);
+  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o, posSend, posFulfil,  lines, loadsHand, loadInfo, posHand, over]);
 
   const place = async () => {
     if (missing) { setMsg({ bad: true, text: 'Not ready: ' + missing }); return; }
@@ -452,7 +438,7 @@ export default function NewOrder() {
     setLines(L2);
     setLoadsHand((lds.data || []).map((L, i) => ({ uid: key(), n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
       items: Object.fromEntries((lis.data || []).filter((x) => x.load_id === L.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
-    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, cat: '', deliverTo: P.deliver_to, notes: P.notes, send: P.send,
+    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, cat: '', deliverTo: P.deliver_to, fulfil: P.fulfil || 'delivery', notes: P.notes, send: P.send,
       items: Object.fromEntries((pis.data || []).filter((x) => x.po_id === P.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
     setOver({}); setLoadInfo({}); setTab('so');
     if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
@@ -676,9 +662,8 @@ export default function NewOrder() {
                 {!foldedPo[P.uid] && <>
                 <div className="no-load">
                   <label className="no-f">Supplier<select value={P.supplier_id || ''} onChange={(e) => { const sp = suppliers.find((x) => String(x.id) === e.target.value); const rt = routes.find((r) => String(r.supplier_id) === e.target.value); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, supplier_id: sp?.id || null, supplier: sp?.name || '', portal: rt?.portal || '' } : x))); }}><option value="">Choose…</option>{suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></label>
-                  {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), lds = loads.filter((L) => ks.some((k) => qtyIn(L.items, k) > 0)), f = lds.length && lds.every((L) => L.fulfil === 'pickup') ? 'pickup' : lds.some((L) => L.fulfil === 'pickup') ? 'mixed' : 'delivery';
-                    return <div className="no-f">Delivery or pick-up <span className="req">*</span><Seg value={f} set={(v) => setPoFulfil(P, v)} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />{f === 'mixed' && <small className="no-warn">Some loads delivery, some pick-up (see Build Load)</small>}</div>; })()}
-                  {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0); return loads.some((L) => L.fulfil === 'delivery' && ks.some((k) => qtyIn(L.items, k) > 0)) ?                   <label className="no-f">Deliver to<Seg value={P.deliverTo} set={(v) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, deliverTo: v } : x)))} options={[['site', "Customer's site"], ['penrith', 'Penrith warehouse']]} /></label> : null; })()}
+                  <div className="no-f">Delivery or pick-up <span className="req">*</span><Seg value={poFulfil(P)} set={(v) => setPoFulfil(P, v)} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} /></div>
+                  {poFulfil(P) === 'delivery' && <label className="no-f">Deliver to<Seg value={P.deliverTo} set={(v) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, deliverTo: v } : x)))} options={[['site', "Customer's site"], ['penrith', 'Penrith warehouse']]} /></label>}
                   <div className={'no-f' + (o.kind === 'order' && P.send == null ? ' no-need' : '')}>Send order <span className="req">*</span><Seg value={P.send == null ? '' : P.send ? 'yes' : 'no'} set={(v) => setPoSend(P, v === 'yes')} options={[['yes', 'Yes'], ['no', 'No']]} /></div>
                   <label className="no-f no-grow">Note to the supplier<input value={P.notes} onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, notes: e.target.value } : x)))} placeholder="Optional" /></label>
                 </div>

@@ -16,7 +16,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 const env = (k: string) => (Deno.env.get(k) ?? "").trim();
-const SCOPES = "openid profile email offline_access accounting.settings.read accounting.contacts.read";   /* contacts: Admin > Customers (13 Nov 2026) */
+/* contacts: Admin > Customers; invoices (read): each customer's balances (13 Nov 2026). Xero apps made since March 2026
+   use the narrower "accounting.invoices.read"; XERO_SCOPES (a secret) overrides the list if Xero asks for another. */
+const SCOPES = env("XERO_SCOPES") || "openid profile email offline_access accounting.settings.read accounting.contacts.read accounting.invoices.read";
 const admin = () => createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false }, db: { schema: "public" } });
 const priv = admin;   /* the Xero tables are in public, readable only with the service role (RLS, no policies) */
 
@@ -193,8 +195,40 @@ Deno.serve(async (req) => {
         const ids = new Set(rows.map((r) => String(r.xero_contact_id)));
         const gone = (have || []).filter((x: any) => x.xero_contact_id && !ids.has(String(x.xero_contact_id))).map((x: any) => x.id);
         if (gone.length) await admin().from("customers").update({ in_xero: false, updated_at: now }).in("id", gone);
-        await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length }).eq("id", runId);
-        return { ok: true, contacts: rows.length, added, updated, gone: gone.length };
+        /* each customer's balances from their sales invoices (Xero's figures); a missing permission does not stop the sync */
+        let balances = "";
+        try {
+          const per = new Map<string, { appr: number; due: number; over: number; inv: number }>();
+          const today = new Date().toISOString().slice(0, 10);
+          for (let page = 1; page <= 100; page++) {
+            const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices?summaryOnly=true&pageSize=1000&page=" + page + "&Statuses=SUBMITTED,AUTHORISED,PAID&where=" + encodeURIComponent('Type=="ACCREC"'),
+              { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+            const j = await r.json().catch(() => ({}));
+            if (r.status === 401 || r.status === 403) throw new Error("Xero did not allow reading invoices: press Reconnect once (balances need one more permission).");
+            if (!r.ok) throw new Error("Xero invoices: " + (j?.Detail || j?.Message || j?.Title || r.status));
+            const got: any[] = Array.isArray(j?.Invoices) ? j.Invoices : [];
+            for (const iv of got) {
+              const id = String(iv?.Contact?.ContactID || ""); if (!id) continue;
+              const b = per.get(id) || { appr: 0, due: 0, over: 0, inv: 0 }, total = Number(iv.Total) || 0, due = Number(iv.AmountDue) || 0;
+              if (iv.Status === "SUBMITTED") b.appr += total;
+              if (iv.Status === "AUTHORISED") { b.due += due; const dd = String(iv.DueDateString || iv.DueDate || "").slice(0, 10); if (dd && /^\d{4}-/.test(dd) && dd < today) b.over += due; }
+              if (iv.Status === "AUTHORISED" || iv.Status === "PAID") b.inv += total;
+              per.set(id, b);
+            }
+            if (got.length < 1000) break;
+          }
+          const r2 = (n: number) => Math.round(n * 100) / 100, at = new Date().toISOString();
+          const { data: cs } = await admin().from("customers").select("id, xero_contact_id, xero_awaiting_approval, xero_awaiting_payment, xero_overdue, xero_invoiced");
+          for (const c of cs || []) {
+            const b = per.get(String(c.xero_contact_id)) || { appr: 0, due: 0, over: 0, inv: 0 };
+            const v = { xero_awaiting_approval: r2(b.appr), xero_awaiting_payment: r2(b.due), xero_overdue: r2(b.over), xero_invoiced: r2(b.inv) };
+            if (Number(c.xero_awaiting_approval) !== v.xero_awaiting_approval || Number(c.xero_awaiting_payment) !== v.xero_awaiting_payment || Number(c.xero_overdue) !== v.xero_overdue || Number(c.xero_invoiced) !== v.xero_invoiced)
+              await admin().from("customers").update({ ...v, xero_balances_at: at }).eq("id", c.id);
+          }
+          await admin().from("customers").update({ xero_balances_at: at }).is("xero_balances_at", null);
+        } catch (e) { balances = e instanceof Error ? e.message : String(e); }
+        await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length, error: balances ? balances.slice(0, 500) : null }).eq("id", runId);
+        return { ok: true, contacts: rows.length, added, updated, gone: gone.length, balances_error: balances || null };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error: msg.slice(0, 500) }).eq("id", runId);

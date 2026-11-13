@@ -8,6 +8,7 @@ import Icon from '../components/Icon.jsx';
 /* Admin > Customers (13 Nov 2026): every Xero contact (Sync from Xero, and by itself every 30 minutes), with what Direct
    keeps on top: COD or account, the customer's price list, and the team's notes, shown on every order of theirs.
    Click a customer to see and write their notes. */
+const cash = (v) => (Number(v) ? '$' + Number(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
 const when = (t) => (t ? new Date(t).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
 /* Xero's sales terms, in words: 30 / DAYSAFTERBILLMONTH is "30 days EOM" */
 const ord = (n) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
@@ -150,7 +151,7 @@ export default function AdminCustomers() {
 
   const sync = async () => {
     setBusy('sync'); setMsg(null);
-    try { const r = await xero('sync_contacts'); setMsg({ text: 'Synced ' + r.contacts + ' contacts from Xero: ' + r.added + ' new, ' + r.updated + ' updated' + (r.gone ? ', ' + r.gone + ' no longer in Xero' : '') + '.' }); await load(); }
+    try { const r = await xero('sync_contacts'); setMsg({ bad: !!r.balances_error, text: 'Synced ' + r.contacts + ' contacts from Xero: ' + r.added + ' new, ' + r.updated + ' updated' + (r.gone ? ', ' + r.gone + ' no longer in Xero' : '') + '.' + (r.balances_error ? ' Balances: ' + r.balances_error : ' Balances updated.') }); await load(); }
     catch (e) { setMsg({ bad: true, text: e.message }); }
     loadStatus(); setBusy('');
   };
@@ -193,9 +194,9 @@ export default function AdminCustomers() {
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table cu-table">
-            <thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th className="r">Awaiting approval</th><th className="r">Awaiting payment</th><th className="r">Invoiced</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
             <tbody>
-              {rows !== null && !list.length && <tr><td colSpan="9" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
+              {rows !== null && !list.length && <tr><td colSpan="12" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((c) => {
                 const cn = notes[c.id] || [];
                 return (
@@ -207,11 +208,14 @@ export default function AdminCustomers() {
                       <td><select className="pp-pick" value={c.terms} disabled={!canEdit} onChange={(e) => setField(c, { terms: e.target.value })} aria-label={'Terms of ' + c.name}><option value="cod">COD</option><option value="account">Account</option></select></td>
                       <td><select className={'pp-pick cu-hold' + (c.on_hold ? ' on' : '')} value={c.on_hold ? 'yes' : 'no'} disabled={!canEdit} onChange={(e) => setField(c, { on_hold: e.target.value === 'yes' })} aria-label={'On hold: ' + c.name}><option value="no">No</option><option value="yes">Yes</option></select></td>
                       <td><Limit c={c} canEdit={canEdit} onSave={setField} /></td>
+                      <td className="r cu-money">{cash(c.xero_awaiting_approval) || <span className="pp-muted">—</span>}</td>
+                      <td className={'r cu-money' + (c.credit_limit != null && Number(c.xero_awaiting_payment) > Number(c.credit_limit) ? ' cu-over' : '')} title={c.credit_limit != null && Number(c.xero_awaiting_payment) > Number(c.credit_limit) ? 'More than the credit limit' : ''}>{cash(c.xero_awaiting_payment) || <span className="pp-muted">—</span>}{Number(c.xero_overdue) > 0 && <small className="cu-overdue">{cash(c.xero_overdue)} overdue</small>}</td>
+                      <td className="r cu-money cu-inv">{cash(c.xero_invoiced) || <span className="pp-muted">—</span>}</td>
                       <td className="cu-terms">{termsText(c) || <span className="pp-muted" title="No terms on this contact in Xero: Xero's organisation default applies">{status?.default_terms ? termsText(status.default_terms) + ' (default)' : 'None in Xero'}</span>}</td>
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>
                     </tr>
-                    {open === c.id && <tr className="cu-open"><td colSpan="9"><Notes c={c} notes={cn} me={staff.email} myName={staff.name || staff.email.split('@')[0]} onChange={loadNotes} lists={lists} /></td></tr>}
+                    {open === c.id && <tr className="cu-open"><td colSpan="12"><Notes c={c} notes={cn} me={staff.email} myName={staff.name || staff.email.split('@')[0]} onChange={loadNotes} lists={lists} /></td></tr>}
                   </Fragment>
                 );
               })}

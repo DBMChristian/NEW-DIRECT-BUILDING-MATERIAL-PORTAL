@@ -52,7 +52,9 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   let body: any = {};
   try { body = await req.json(); } catch { /* checked below */ }
   const action = String(body?.action || ""), orderId = Number(body?.order_id), kind = body?.kind === "stock" ? "stock" : "dropship";
-  if (!["list", "preview", "send", "send_test", "update_delivery", "update_items", "check", "activity", "chat_send"].includes(action)) return json({ error: 'Send action "list", "preview", "send", "send_test", "update_delivery" or "update_items"' }, 400);
+  /* Direct's new portal (13 Nov 2026): only new orders go into DBM's portals. Nothing that changes an order already there
+     (update_items, update_delivery) or writes into one (chat_send) is allowed from here. */
+  if (!["preview", "send", "send_test", "check"].includes(action)) return json({ error: 'Only "preview", "send", "send_test" or "check": an order already in a DBM portal is never changed from here.' }, 400);
   if (action === "send_test" && admin !== true) return json({ error: "Only an admin sends a test to ordersteel" }, 403);
   /* check (11 Nov 2026): read-only, which portal and order type each product goes as, and whether it is there and priced */
   if (action === "check") {

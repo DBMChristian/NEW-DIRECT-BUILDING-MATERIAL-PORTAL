@@ -735,3 +735,20 @@ tr.no-flash td{background:#FEF2F2!important}
 .od-pad{padding:6px 10px;margin:0}.od-qa{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;background:#FFFBEB}
 .hm-link{text-decoration:none;color:inherit;cursor:pointer}.hm-link:hover{border-color:var(--red)}
 @media (max-width:900px){.od-grid{grid-template-columns:1fr}}
+
+/* a placed order in the form's layout, with its actions (13 Nov 2026) */
+.no-fs{border:0;margin:0;padding:0;min-width:0}
+.no-fs:disabled input,.no-fs:disabled select,.no-fs:disabled textarea{background:#FAFAF9;color:var(--ink);opacity:1;cursor:default}
+.no-fs:disabled .no-x,.no-fs:disabled .no-qty button,.no-fs:disabled .no-move,.no-fs:disabled .no-ghx,.no-fs:disabled .no-cat,.no-fs:disabled .no-search{display:none}
+.no-ost{font-size:11px;font-weight:800;letter-spacing:.06em;border-radius:4px;padding:2px 8px;margin-left:10px;vertical-align:3px;background:#FEF3C7;color:#92400E}
+.no-ost-cancelled{background:#E7E5E4;color:#57534E}
+.no-acts{display:flex;flex-direction:column;gap:6px}
+.no-ah{font-size:10.5px;font-weight:800;letter-spacing:.1em;color:#78716C;margin-top:6px;border-top:1px solid #E7E5E4;padding-top:6px}
+.no-al{display:flex;flex-direction:column;gap:4px;font-size:12.5px;border:1px solid #E7E5E4;border-radius:6px;padding:6px 8px}
+.no-al small{font-size:11.5px;color:#57534E}
+.no-book{display:flex;gap:4px;flex-wrap:wrap;align-items:center}.no-book input,.no-book select{height:28px;border:1px solid #b9c0c8;border-radius:3px;font:inherit;font-size:12px;padding:0 4px}
+.no-acts .btn{height:28px;font-size:12px}
+.no-okl{color:#166534!important;margin:0}.no-badl{color:#B91C1C!important;margin:0}
+.no-placed{background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;padding:6px 8px;font-size:12px}.no-placed p{margin:2px 0}
+.no-onote{background:#FAFAF9;border:1px solid #E7E5E4;border-radius:6px;padding:6px 8px}.no-onote p{margin:0;font-size:12.5px;white-space:pre-wrap}.no-onote small{font-size:11px;color:#57534E}
+.no-cancel{margin-top:8px;color:#B91C1C!important;border-color:#FCA5A5!important}

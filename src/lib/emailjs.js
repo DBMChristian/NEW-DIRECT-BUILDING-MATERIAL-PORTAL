@@ -67,3 +67,20 @@ export function poEmailHtml({ po, supplier, portal, order, customer, deliverTo, 
     + '<div style="font-size:12px;color:#78716C;margin-top:16px">Please confirm by replying to this email. Questions: orders@directbuildingmaterial.com.au</div></td></tr>'
     + '<tr><td style="background:#1E1A17;color:#D6D3D1;font-size:11px;padding:12px 24px;text-align:center">Direct Building Material · 16 Cassola Place, Penrith NSW 2750</td></tr></table></td></tr></table></div>';
 }
+
+/* the order confirmation to the customer (13 Nov 2026): Direct's look, the order number, the site and days, the lines
+   with their prices and the total */
+export function orderEmailHtml({ number, customer, contact, site, loads, groups, subtotal, gst, total }) {
+  const money = (v) => '$' + Number(v || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const row = (l) => '<tr><td style="padding:6px 10px;border-top:1px solid #E7E5E4;font-size:13px">' + esc(l.name) + '</td><td style="padding:6px 10px;border-top:1px solid #E7E5E4;font-size:13px;text-align:right">' + esc(l.qty) + '</td><td style="padding:6px 10px;border-top:1px solid #E7E5E4;font-size:13px;text-align:right">' + money(l.qty * l.price) + '</td></tr>';
+  return '<div style="background:#F4F2EE;padding:24px 0;font-family:Arial,Helvetica,sans-serif;color:#1E1A17"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">'
+    + '<table role="presentation" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#fff;border-radius:10px;overflow:hidden">'
+    + '<tr><td style="background:#1E1A17;padding:18px 24px;border-bottom:4px solid #B91C1C"><span style="display:inline-block;background:#B91C1C;color:#fff;font-weight:900;font-size:16px;letter-spacing:1px;padding:4px 9px;border-radius:3px">DIRECT</span> <span style="color:#A8A29E;font-size:10px;font-weight:bold;letter-spacing:2px;margin-left:6px">BUILDING MATERIAL</span></td></tr>'
+    + '<tr><td style="padding:22px 24px"><div style="font-size:12px;color:#78716C;letter-spacing:1px">ORDER CONFIRMATION</div><div style="font-size:24px;font-weight:bold;margin:2px 0 6px">' + esc(number) + '</div>'
+    + '<div style="font-size:14px;color:#44403C">Hi ' + esc(contact || customer) + ', thank you for your order.</div>'
+    + '<div style="margin:14px 0;background:#FAFAF9;border:1px solid #E7E5E4;border-radius:8px;padding:10px 14px;font-size:13px;line-height:1.7"><b>Site:</b> ' + esc(site) + '<br>' + loads.map((l) => '<b>' + esc(l.what) + ':</b> ' + esc(l.when)).join('<br>') + '</div>'
+    + groups.map((g) => '<div style="margin-top:10px;font-size:12px;font-weight:bold;letter-spacing:1px;color:#57534E">' + esc(g.title.toUpperCase()) + '</div><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #E7E5E4;border-radius:6px;overflow:hidden">' + g.lines.map(row).join('') + '</table>').join('')
+    + '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-top:12px;font-size:13px"><tr><td style="text-align:right;color:#57534E">Ex GST</td><td style="text-align:right;width:120px">' + money(subtotal) + '</td></tr><tr><td style="text-align:right;color:#57534E">GST</td><td style="text-align:right">' + money(gst) + '</td></tr><tr><td style="text-align:right;font-weight:bold">Total</td><td style="text-align:right;font-weight:bold;font-size:16px">' + money(total) + '</td></tr></table>'
+    + '<div style="font-size:12px;color:#78716C;margin-top:16px">Questions: reply to this email or call Direct Building Material.</div></td></tr>'
+    + '<tr><td style="background:#1E1A17;color:#D6D3D1;font-size:11px;padding:12px 24px;text-align:center">Direct Building Material · 16 Cassola Place, Penrith NSW 2750</td></tr></table></td></tr></table></div>';
+}

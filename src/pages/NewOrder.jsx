@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import AddressInput from '../components/AddressInput.jsx';
-import { sendEmail, poEmailHtml } from '../lib/emailjs.js';
+import { sendEmail, poEmailHtml, orderEmailHtml } from '../lib/emailjs.js';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
 import { locateSite } from '../lib/wpLocation.js';
@@ -40,6 +40,8 @@ const blankLoad = (n, h = {}) => ({ uid: key(), fulfil: 'delivery', site: h.site
 const qtyIn = (map, k) => Number((map || {})[k] || 0);
 
 export default function NewOrder() {
+  const { id: viewId } = useParams();
+  const placedInfo = useLocation().state?.placed;
   const { staff } = useAuth();
   const nav = useNavigate();
   const [tab, setTab] = useState('so');
@@ -61,6 +63,7 @@ export default function NewOrder() {
   const [syncing, setSyncing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [newCust, setNewCust] = useState(null);
+  const [orderNotes, setOrderNotes] = useState([]);
   const [folded, setFolded] = useState({});   /* materials minimised in Build SO */
   const [foldedPo, setFoldedPo] = useState({});   /* POs minimised in Build PO */
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
@@ -301,6 +304,11 @@ export default function NewOrder() {
       .map((x) => { const ov = over[L.uid + '|' + x.key] || {}; return { ...x, load: L.uid, list: x.price, price: ov.price ?? x.price, qty: ov.qty ?? x.qty, reason: ov.reason || '', off: !!ov.off }; });
     return { L, inLoad, cats, ch };
   }), [loads, lines, over, products, extraPrices, o.customer]);
+  useEffect(() => {
+    const saved = savedCharges.current; if (!saved || !loadCharges.length) return; savedCharges.current = null;
+    const off = {}; loadCharges.forEach((x) => x.ch.forEach((c) => { const kx = x.L.uid + '|' + c.key; if (!saved.has(kx)) off[kx] = { off: true }; }));
+    if (Object.keys(off).length) setOver((O) => { const N = { ...O }; Object.entries(off).forEach(([kx, v]) => { N[kx] = { ...(N[kx] || {}), ...v }; }); return N; });
+  }, [loadCharges]);
   const impc = byCode.get('impc')?.active ? impcFor(lines) : null;
   const allCharges = [...(impc ? [{ ...impc, load: '', list: impc.price, reason: '', off: false }] : []), ...loadCharges.flatMap((x) => x.ch)];
   /* the same charge on several loads (e.g. two Rediwall deliveries) is one line with its quantity added up (13 Nov 2026);
@@ -437,6 +445,7 @@ export default function NewOrder() {
   const loadDrafts = async () => { const { data } = await supabase.from('orders').select('id, customer_name, total, updated_at, created_by_name').eq('status', 'draft').or('customer_name.neq.,total.gt.0').order('updated_at', { ascending: false }).limit(40); setDrafts(data || []); };
   useEffect(() => { loadDrafts(); }, [saved]);
   const lastDraft = drafts.find((d) => d.id !== o.id);
+  const savedCharges = useRef(null);
   const openDraft = async (id) => { placedRef.current = false;
     setShowDrafts(false); setMsg(null);
     const [od, ls, lds, lis, ps, pis] = await Promise.all([supabase.from('orders').select('*, customer:customers(*)').eq('id', id).single(), supabase.from('order_lines').select('*').eq('order_id', id).order('sort'),
@@ -447,18 +456,55 @@ export default function NewOrder() {
     const L2 = prod.map((l) => { const kk = key(); k[l.id] = kk; const p = products.find((x) => x.id === l.product_id);
       const cu = l.custom || {}; return { key: kk, product_id: l.product_id, code: l.code, name: cu.base || l.name, baseName: cu.base || l.name, eps: cu.eps || {}, cut: cu.cut || {}, desc: cu.desc || '', unit: l.unit, category: p?.category || 'Others', qty: Number(l.qty), price: Number(l.price), list: Number(l.list_price ?? l.price), reason: l.price_reason || '' }; });
     const site = String(d.site_street || '') + (d.site_suburb ? ', ' + d.site_suburb : '');
-    setO({ id: d.id, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: digits8(d.contact_phone), mobile: true,
+    setO({ id: d.id, status: d.status, number: d.number, placed_at: d.placed_at, created_by_name: d.created_by_name, total_saved: d.total, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: digits8(d.contact_phone), mobile: true,
       email: d.email, upload_xero: d.upload_xero !== false, their_po: d.their_po, instructions: d.instructions, site_street: d.site_street, site_suburb: d.site_suburb, delivery_date: d.delivery_date || '', booking_time: d.booking_time || '', sms: d.sms_confirm, plans: d.plans || [] });
     setLines(L2);
-    setLoadsHand((lds.data || []).map((L, i) => ({ uid: key(), n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
+    const luid = {};
+    setLoadsHand((lds.data || []).map((L, i) => ({ uid: (luid[L.id] = key()), dbId: L.id, status: L.status, booked_date: L.booked_date, booked_time: L.booked_time, n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
       items: Object.fromEntries((lis.data || []).filter((x) => x.load_id === L.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
-    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, cat: '', deliverTo: P.deliver_to, fulfil: P.fulfil || 'delivery', notes: P.notes, send: P.send,
+    setPosHand((ps.data || []).map((P) => ({ uid: key(), dbId: P.id, number: P.number, status: P.status, supplier_ref: P.supplier_ref, portal_error: P.portal_error, supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, cat: '', deliverTo: P.deliver_to, fulfil: P.fulfil || 'delivery', notes: P.notes, send: P.send,
       items: Object.fromEntries((pis.data || []).filter((x) => x.po_id === P.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
-    setOver({}); setLoadInfo({}); setTab('so');
+    /* the charges as saved: their typed prices and reasons; one not saved was removed (13 Nov 2026) */
+    const ov = {}, saved = new Set();
+    (ls.data || []).filter((l) => l.is_charge && l.load_id && luid[l.load_id]).forEach((l) => { const kx = luid[l.load_id] + '|' + l.charge_key; saved.add(kx);
+      if (Number(l.list_price ?? l.price) !== Number(l.price) || l.price_reason) ov[kx] = { price: Number(l.price), reason: l.price_reason || '' }; });
+    savedCharges.current = (ls.data || []).some((l) => l.is_charge && l.load_id) ? saved : null;
+    setOver(ov); setLoadInfo({}); setTab('so');
     if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
-    setMsg({ text: 'DRAFT-' + d.id + ' opened.' });
+    setMsg(d.status === 'draft' ? { text: 'DRAFT-' + d.id + ' opened.' } : null);
+    if (d.status !== 'draft') placedRef.current = true;   /* a placed order is shown, never saved over */
+    const nt = await supabase.from('order_notes').select('*').eq('order_id', d.id).order('created_at', { ascending: false }); setOrderNotes(nt.data || []);
   };
   const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
+  useEffect(() => { if (viewId && products.length) openDraft(Number(viewId)); }, [viewId, products.length]);
+
+  /* ---------- a placed order (13 Nov 2026): the same layout, read-only, with its actions ---------- */
+  const view = !!o.status && o.status !== 'draft';
+  const [act, setAct] = useState(null);   /* an action running */
+  const [actMsg, setActMsg] = useState(null);
+  const [bookAt, setBookAt] = useState({});   /* the day and time typed for booking a load */
+  const [noteText, setNoteText] = useState('');
+  const reopen = () => openDraft(o.id);
+  const run = async (name, fn, okText) => { setAct(name); setActMsg(null); try { await fn(); if (okText) setActMsg({ text: okText }); } catch (e) { setActMsg({ bad: true, text: e.message || String(e) }); } setAct(null); reopen(); };
+  const bookLoad = (L) => run('book' + L.uid, async () => { const b = bookAt[L.uid] || {}, d = b.date || L.date, t = b.time || L.time || 'Any time';
+    if (!d) throw new Error('Choose the day to book load ' + L.n + '.');
+    const r = await supabase.from('order_loads').update({ status: 'booked', booked_date: d, booked_time: t }).eq('id', L.dbId); if (r.error) throw r.error; }, 'Load booked.');
+  const loadStatus = (L, st) => run('st' + L.uid, async () => { const r = await supabase.from('order_loads').update(st === 'pending' ? { status: 'pending', booked_date: null, booked_time: null } : { status: st }).eq('id', L.dbId); if (r.error) throw r.error; },
+    st === 'delivered' ? 'Load ' + L.n + ' marked delivered.' : 'Load ' + L.n + ' is pending again.');
+  const resendPo = (P) => run('mail' + P.uid, async () => { const em = emailOf(P); if (!em.to) throw new Error(P.supplier + ' has no email in Admin › Suppliers.');
+    const m = poMail(P, P.number, o.number); await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); }, 'PO email sent to ' + P.supplier + '.');
+  const toPortal = (P) => run('portal' + P.uid, async () => { const r = await supabase.functions.invoke('portal-po', { body: { action: 'send', order_id: P.dbId } });
+    let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
+    if (!b?.sent) throw new Error('Not in ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : '')); }, P.number + ' sent to ' + P.portal + '.');
+  const emailCustomer = () => run('cust', async () => { if (!o.email) throw new Error('No email for the invoice on this order.');
+    const groups = soCats.map((c) => ({ title: c, lines: [...lines.filter((l) => l.category === c).map((l) => ({ name: lineName(l), qty: l.qty, price: l.price })), ...mergeCh(allCharges.filter((x) => x.cat === c && !x.off)).map((x) => ({ name: x.name, qty: x.qty, price: x.price }))] }));
+    const lds = loads.map((L) => ({ what: 'Load ' + L.n + ' · ' + (L.fulfil === 'pickup' ? 'pick-up' : 'delivery'), when: (L.booked_date || L.date ? new Date((L.booked_date || L.date) + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) : 'to be booked') + ' · ' + (L.booked_time || L.time || '') }));
+    await sendEmail({ to: o.email, subject: 'Your order ' + o.number + ' · Direct Building Material', html: orderEmailHtml({ number: o.number, customer: o.customer?.name, contact: o.contact_name, site: headSite, loads: lds, groups, subtotal: sub, gst, total }) }); }, 'Order confirmation emailed to ' + o.email + '.');
+  const addOrderNote = () => run('note', async () => { const t = noteText.trim(); if (!t) return;
+    const r = await supabase.from('order_notes').insert({ order_id: o.id, text: t, by_email: staff.email, by_name: staff.name || staff.email.split('@')[0] }); if (r.error) throw r.error; setNoteText(''); });
+  const cancelOrder = () => { const why = window.prompt('Cancel ' + o.number + '? Type the reason (it is kept on the order):'); if (why == null) return;
+    run('cancel', async () => { const { data, error } = await supabase.rpc('cancel_order', { p_id: o.id, p_reason: why }); if (error) throw error;
+      for (const qid of data?.xero || []) await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); }, o.number + ' cancelled.'); };
   const restart = () => { placedRef.current = false; setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', upload_xero: true, contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
 
 
@@ -564,16 +610,18 @@ export default function NewOrder() {
       <div className="no-wrap">
         <div className="no-top">
           <section className="no-card no-head" aria-label="Customer">
-            <div className="no-bar"><h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>
+            <div className="no-bar">{view ? <h1>{o.number}<span className={'no-ost no-ost-' + o.status}>{o.status === 'cancelled' ? 'CANCELLED' : o.kind === 'quote' ? 'QUOTE' : 'PLACED'}</span><small>{o.placed_at ? new Date(o.placed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + (o.created_by_name ? ' by ' + o.created_by_name : '') : ''}</small></h1> : <h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>}
+              {view ? <span className="no-bar-r"><button type="button" onClick={() => nav('/orders/new')}>+ New order</button><button type="button" onClick={() => nav('/')}>Home</button></span> :
               <span className="no-bar-r">
                 {staff.role === 'admin' && <a href="/admin/products" target="_blank" rel="noreferrer">Price Book</a>}
                 {lastDraft && <button type="button" onClick={() => openDraft(lastDraft.id)}>↻ Continue DRAFT-{lastDraft.id}</button>}
                 {o.id && <button type="button" aria-label="New blank form" title="New blank form" onClick={() => restart()}>×</button>}
                 <button type="button" onClick={() => setShowDrafts(!showDrafts)} aria-expanded={showDrafts}>Unfinished forms <i>{drafts.length}</i></button>
-              </span>
+              </span>}
               {showDrafts && <div className="no-drafts">{!drafts.length ? <p className="no-sub">No unfinished forms.</p> : drafts.map((d) => (
                 <div key={d.id} className="no-dr"><button type="button" onClick={() => openDraft(d.id)}><b>DRAFT-{d.id}</b> {d.customer_name || 'No company yet'}<small>{cash(d.total)} · {d.created_by_name} · {new Date(d.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></button><button type="button" className="no-x" aria-label={'Delete DRAFT-' + d.id} onClick={() => dropDraft(d.id)}>×</button></div>))}</div>}
             </div>
+            <fieldset className="no-fs" disabled={view}>
             <div className="no-hd">
               <div className={'no-f no-c1' + needCls('go-company')} id="go-company">Company <span className="req">*</span>
                 {!o.customer ? <div className="no-cwrap"><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" aria-label="Company" autoFocus />
@@ -598,6 +646,7 @@ export default function NewOrder() {
               <label className={'no-f' + needCls('go-time')} id="go-time">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
               {<div id="go-sms" className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>}
             </div>
+            </fieldset>
             {o.customer && <div className="no-chips">
               <span className="no-chip" style={{ background: '#FEF3C7', color: '#92400E' }}>{o.customer.terms === 'account' ? 'Account customer' : 'COD customer'}</span>
               {o.customer.credit_limit != null && <span className="no-chip" style={{ background: '#F5F5F4', color: '#44403C' }}>Limit {cash(o.customer.credit_limit)}</span>}
@@ -621,6 +670,7 @@ export default function NewOrder() {
           <div className="no-tabs" role="tablist">{tabs.map(([k, n, t, d, c]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 
+          <fieldset className="no-fs" disabled={view}>
           {tab === 'so' && <>
           <section className="no-card" aria-label="Products" id="go-products">
             <div className="no-ct">Products</div>
@@ -756,9 +806,10 @@ export default function NewOrder() {
               </>; })()}
             {lines.length > 0 && <button type="button" className="btn" onClick={addLoad}>+ Add a load</button>}
           </section>}
+          </fieldset>
         </div>
 
-        {askDelivery && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-labelledby="dl-t">
+        {!view && askDelivery && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-labelledby="dl-t">
           <div className="no-prevbox no-askd"><div className="no-prevh"><b id="dl-t">A delivery was added</b></div>
             <div className="no-askb"><p><b>Load {askDelivery.L.n}</b> · {askDelivery.cats.join(', ')} is another delivery. It goes on the customer's sales order (the delivery quantity goes up).</p>
               <p>Who delivers it?</p>
@@ -782,6 +833,35 @@ export default function NewOrder() {
               </div>); })}</div>}
             <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
             {(() => { const cs = r2(lines.reduce((t, l) => t + costOf(l), 0) + allCharges.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sub - cs); return <div className="no-prof"><div className="no-sl"><span>Cost (Xero)</span><b>{cash(cs)}</b></div><div className={'no-sl' + (pr < 0 ? ' neg' : '')}><span>Profit</span><b>{cash(pr)} · {pct(pr, sub)}%</b></div></div>; })()}
+            {view ? <div className="no-acts">
+              {placedInfo && placedInfo.number === o.number && <div className="no-placed">{[...(placedInfo.xero || []), ...(placedInfo.sent || []).map((t) => ({ ok: true, text: 'PO email sent: ' + t })), ...(placedInfo.failed || []).map((t) => ({ ok: false, text: 'PO email not sent: ' + t })), ...(placedInfo.portal || [])].map((x, i) => <p key={i} className={x.ok ? 'no-okl' : 'no-badl'}>{x.ok ? '✓ ' : '✕ '}{x.text}</p>)}{!placedInfo.upload && <p className="no-sub">Not uploaded to Xero.</p>}</div>}
+              {actMsg && <p className={actMsg.bad ? 'msg bad' : 'msg'} role="status">{actMsg.text}</p>}
+              {o.status !== 'cancelled' && <>
+              <div className="no-ah">LOADS</div>
+              {loads.map((L) => { const cats = [...new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category))].join(', '); return (
+                <div key={L.uid} className="no-al"><b>Load {L.n}</b> · {cats} · {L.fulfil === 'pickup' ? 'Pick-up' : 'Delivery'}
+                  {L.status === 'booked' ? <><small className="no-okl">Booked {L.booked_date ? new Date(L.booked_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) : ''} {L.booked_time || ''}</small>
+                    <span className="no-row"><button type="button" className="btn btn-red" disabled={!!act} onClick={() => loadStatus(L, 'delivered')}>{L.fulfil === 'pickup' ? 'Picked up' : 'Delivered'}</button><button type="button" className="btn" disabled={!!act} onClick={() => loadStatus(L, 'pending')}>Unbook</button></span></>
+                  : L.status === 'delivered' ? <small className="no-okl">✓ {L.fulfil === 'pickup' ? 'Picked up' : 'Delivered'}</small>
+                  : <span className="no-book"><input type="date" value={(bookAt[L.uid] || {}).date ?? L.date ?? ''} onChange={(e) => setBookAt((m) => ({ ...m, [L.uid]: { ...(m[L.uid] || {}), date: e.target.value } }))} aria-label={'Day for load ' + L.n} />
+                    <select value={(bookAt[L.uid] || {}).time ?? L.time ?? 'Any time'} onChange={(e) => setBookAt((m) => ({ ...m, [L.uid]: { ...(m[L.uid] || {}), time: e.target.value } }))} aria-label={'Time for load ' + L.n}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select>
+                    <button type="button" className="btn btn-red" disabled={!!act} onClick={() => bookLoad(L)}>{act === 'book' + L.uid ? 'Booking…' : 'Book'}</button>{L.status === 'on_hold' && <small className="no-badl">On hold</small>}</span>}
+                </div>); })}
+              <div className="no-ah">PURCHASE ORDERS</div>
+              {!pos.length && <p className="no-sub">No POs.</p>}
+              {pos.map((P) => <div key={P.uid} className="no-al"><b>{P.number || 'PO'}</b> · {P.supplier}{P.portal ? ' · ' + P.portal : ''}
+                <small>{P.send ? 'Sent to the supplier' : 'Not sent'}{P.supplier_ref ? ' · in ' + P.portal + ' as ' + P.supplier_ref : ''}{P.portal_error && P.portal_error !== 'sending' ? ' · portal: ' + P.portal_error : ''}</small>
+                <span className="no-row"><button type="button" className="btn" onClick={() => setPreview(poMail(P, P.number, o.number))}>Preview</button><button type="button" className="btn" disabled={!!act} onClick={() => resendPo(P)}>{act === 'mail' + P.uid ? 'Sending…' : P.send ? 'Resend email' : 'Email it'}</button>
+                  {P.portal && !P.supplier_ref && <button type="button" className="btn" disabled={!!act} onClick={() => toPortal(P)}>{act === 'portal' + P.uid ? 'Sending…' : 'To ' + P.portal}</button>}</span></div>)}
+              <div className="no-ah">CUSTOMER</div>
+              <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button>
+              </>}
+              <div className="no-ah">NOTES</div>
+              <textarea className="no-desc" rows={2} value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note to this order…" />
+              <button type="button" className="btn" disabled={!!act || !noteText.trim()} onClick={addOrderNote}>Add note</button>
+              {orderNotes.map((n) => <div key={n.id} className="no-onote"><p>{n.text}</p><small>{n.by_name || n.by_email} · {new Date(n.created_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></div>)}
+              {o.status !== 'cancelled' && <button type="button" className="btn no-cancel" disabled={!!act} onClick={cancelOrder}>{act === 'cancel' ? 'Cancelling…' : 'Cancel order'}</button>}
+            </div> : <>
             {o.customer?.on_hold && <div className="no-alert"><b>On hold:</b> this customer is on hold. Check before placing.</div>}
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}
             {o.kind === 'order' && <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => setO({ ...o, upload_xero: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} />
@@ -792,6 +872,7 @@ export default function NewOrder() {
             {[...new Set(allCharges.filter((x) => !x.off && x.note && !/location|driving time/i.test(x.note)).map((x) => x.note))].map((t) => <button type="button" key={t} className="no-warnbox no-go" onClick={() => goTo(t)} title="Go there">Warning: {t} <i>→</i></button>)}
             <button type="button" className={'btn btn-red btn-big' + (missingAll.length ? ' no-wait' : '')} disabled={busy} onClick={place} title={missingAll.length ? 'Fill in the ' + missingAll.length + ' item(s) listed above first' : ''}>{busy ? 'Placing…' : missingAll.length ? (o.kind === 'quote' ? 'Save quote' : 'Place order') + ' · ' + missingAll.length + ' to fill in' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>
             <div className="no-row"><button type="button" className="btn" onClick={async () => { await save(); setMsg({ text: 'Draft saved.' }); }}>Save draft</button><button type="button" className="btn" onClick={() => { if (window.confirm('Clear the form? The draft stays saved.')) restart(); }}>Clear</button></div>
+            </>}
           </section>
         </aside>
       </div>

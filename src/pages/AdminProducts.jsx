@@ -78,7 +78,7 @@ export default function AdminProducts() {
   const [params, setParams] = useSearchParams();
   const [lists, setLists] = useState([]);
   const [extra, setExtra] = useState({});
-  const [shut, setShut] = useState({});
+  const [open, setOpen] = useState({});   /* sections start closed; a search opens every section with a match */
 
   const load = async () => {
     const all = []; let from = 0;
@@ -120,6 +120,7 @@ export default function AdminProducts() {
       && (!t || (r.code + ' ' + r.name + ' ' + r.description + ' ' + r.category).toLowerCase().includes(t)));
   }, [rows, q, cat, show, type]);
   const groups = useMemo(() => [...CATEGORIES, ''].map((c) => ({ key: c || '-', label: c || 'No category yet', rows: list.filter((r) => (r.category || '') === c) })).filter((g) => g.rows.length), [list]);
+  const isOpen = (k) => !!q.trim() || !!open[k];
   const last = status?.last_sync;
 
   return (
@@ -152,8 +153,8 @@ export default function AdminProducts() {
               {rows !== null && !list.length && <tr><td colSpan={10 + lists.length} className="pp-empty">{rows.length ? 'No product matches.' : status?.connected ? 'No products yet: press Sync from Xero.' : 'No products yet: connect Xero, then Sync from Xero.'}</td></tr>}
               {groups.map((g) => (
                 <Fragment key={g.key}>
-                  <tr className="pp-grp" style={{ '--cc': catColor(g.key === '-' ? '' : g.key) }}><td colSpan={10 + lists.length}><button type="button" onClick={() => setShut({ ...shut, [g.key]: !shut[g.key] })} aria-expanded={!shut[g.key]}><span>{shut[g.key] ? '▸' : '▾'}</span><i className="pp-dot-c" /> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
-                  {!shut[g.key] && <>
+                  <tr className="pp-grp" style={{ '--cc': catColor(g.key === '-' ? '' : g.key) }}><td colSpan={10 + lists.length}><button type="button" onClick={() => setOpen({ ...open, [g.key]: !open[g.key] })} aria-expanded={isOpen(g.key)}><span>{isOpen(g.key) ? '▾' : '▸'}</span><i className="pp-dot-c" /> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
+                  {isOpen(g.key) && <>
                 {g.rows.map((p) => (
                 <tr key={p.id} className={p.in_xero ? '' : 'pp-gone'} style={{ '--cc': catColor(p.category) }}>
                   <td className="pp-code">{p.code}</td>

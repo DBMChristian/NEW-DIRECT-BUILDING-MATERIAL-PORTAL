@@ -123,6 +123,24 @@ export default function NewOrder() {
     setLoadsHand((Ls) => (Ls || arrangeLoads()).map((L) => (L.uid === uid ? { ...L, ...ch } : L))); };
   const setAns = (uid, ch) => { const L = loads.find((x) => x.uid === uid); setLoad(uid, { answers: { ...(L?.answers || {}), ...ch } }); };
   const setLoadQty = (uid, k, v) => setLoadsHand((Ls) => (Ls || arrangeLoads().map((L, i) => ({ ...L, uid: loads[i].uid }))).map((L) => (L.uid === uid ? { ...L, items: { ...L.items, [k]: v } } : L)));
+  /* Delivery or pick-up on one PO changes only that PO's products (13 Nov 2026): on a load shared with other POs'
+     products, its products move to a load of their own (same site, day, time and answers) with the new choice */
+  const setPoFulfil = (P, v) => {
+    const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0); if (!ks.length) return;
+    setLoadsHand((Ls0) => {
+      let Ls = (Ls0 || loads.map((L) => ({ ...L, auto: undefined }))).map((L) => ({ ...L, items: { ...L.items } }));
+      const add = [];
+      Ls.forEach((L) => {
+        const mine = ks.filter((k) => qtyIn(L.items, k) > 0); if (!mine.length || L.fulfil === v) return;
+        const others = Object.keys(L.items).some((k) => qtyIn(L.items, k) > 0 && !ks.includes(k));
+        if (!others) { L.fulfil = v; return; }
+        const nl = { ...L, uid: key(), fulfil: v, items: {} };
+        mine.forEach((k) => { nl.items[k] = qtyIn(L.items, k); L.items[k] = 0; });
+        add.push(nl);
+      });
+      return [...Ls, ...add].map((L, i) => ({ ...L, n: i + 1 }));
+    });
+  };
   const addLoad = () => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, blankLoad(base.length + 1, headLoad)]; });
   const removeLoad = (uid) => setLoadsHand((Ls) => (Ls || loads.map((L) => ({ ...L, auto: undefined }))).filter((L) => L.uid !== uid).map((L, i) => ({ ...L, n: i + 1 })));
   const moveToLoad = (k, from, to) => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); const q0 = qtyIn(base.find((L) => L.uid === from)?.items, k);
@@ -599,7 +617,7 @@ export default function NewOrder() {
                 <div className="no-load">
                   <label className="no-f">Supplier<select value={P.supplier_id || ''} onChange={(e) => { const sp = suppliers.find((x) => String(x.id) === e.target.value); const rt = routes.find((r) => String(r.supplier_id) === e.target.value); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, supplier_id: sp?.id || null, supplier: sp?.name || '', portal: rt?.portal || '' } : x))); }}><option value="">Choose…</option>{suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></label>
                   {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), lds = loads.filter((L) => ks.some((k) => qtyIn(L.items, k) > 0)), f = lds.length && lds.every((L) => L.fulfil === 'pickup') ? 'pickup' : lds.some((L) => L.fulfil === 'pickup') ? 'mixed' : 'delivery';
-                    return <div className="no-f">Delivery or pick-up <span className="req">*</span><Seg value={f} set={(v) => lds.forEach((L) => setLoad(L.uid, { fulfil: v }))} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />{f === 'mixed' && <small className="no-warn">Some loads delivery, some pick-up (see Build Load)</small>}</div>; })()}
+                    return <div className="no-f">Delivery or pick-up <span className="req">*</span><Seg value={f} set={(v) => setPoFulfil(P, v)} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />{f === 'mixed' && <small className="no-warn">Some loads delivery, some pick-up (see Build Load)</small>}</div>; })()}
                   {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0); return loads.some((L) => L.fulfil === 'delivery' && ks.some((k) => qtyIn(L.items, k) > 0)) ?                   <label className="no-f">Deliver to<Seg value={P.deliverTo} set={(v) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, deliverTo: v } : x)))} options={[['site', "Customer's site"], ['penrith', 'Penrith warehouse']]} /></label> : null; })()}
                   <div className={'no-f' + (o.kind === 'order' && P.send == null ? ' no-need' : '')}>Send order <span className="req">*</span><Seg value={P.send == null ? '' : P.send ? 'yes' : 'no'} set={(v) => setPoSend(P, v === 'yes')} options={[['yes', 'Yes'], ['no', 'No']]} /></div>
                   <label className="no-f no-grow">Note to the supplier<input value={P.notes} onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, notes: e.target.value } : x)))} placeholder="Optional" /></label>

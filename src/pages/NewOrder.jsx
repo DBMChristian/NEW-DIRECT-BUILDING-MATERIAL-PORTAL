@@ -250,9 +250,9 @@ export default function NewOrder() {
     const ch = cats.flatMap((c) => chargesFor(c, inLoad, L, ctx).map((x) => ({ ...x, cat: c, key: c + ':' + x.key })))
       /* a charge goes on only when its product is in the list (Admin › Products, active): Reinforcement's delivery is
          FR-CRANE/REO; its name is the product's (13 Nov 2026) */
-      .map((x) => (x.code === 'DELIVERY' && x.cat === 'Reinforcement' ? { ...x, code: 'FR-CRANE/REO' } : x))
+      .map((x) => (x.code === 'DELIVERY' ? { ...x, code: 'FR-CRANE/REO', delivery: true } : x))   /* every material's delivery is FR-CRANE/REO (waffle pods WPDEL; concrete none) */
       .filter((x) => { const p = byCode.get(String(x.code).toLowerCase()); return p && p.active; })
-      .map((x) => { const p = byCode.get(String(x.code).toLowerCase()); return { ...x, name: x.code === 'WPDEL' || x.code === 'WPSB' ? x.name : p.name || x.name, product_id: p.id, asItem: p.sub_category !== 'additional_charge' }; })
+      .map((x) => { const p = byCode.get(String(x.code).toLowerCase()); return { ...x, name: x.code === 'WPDEL' || x.code === 'WPSB' || x.delivery ? x.name : p.name || x.name, product_id: p.id, asItem: p.sub_category !== 'additional_charge' }; })
       .map((x) => { const ov = over[L.uid + '|' + x.key] || {}; return { ...x, load: L.uid, list: x.price, price: ov.price ?? x.price, qty: ov.qty ?? x.qty, reason: ov.reason || '', off: !!ov.off }; });
     return { L, inLoad, cats, ch };
   }), [loads, lines, over, products, extraPrices, o.customer]);

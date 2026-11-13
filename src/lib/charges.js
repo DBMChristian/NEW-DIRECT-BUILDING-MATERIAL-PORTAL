@@ -9,7 +9,7 @@
      plant chosen), CRSUR for the m³ short of 4 (3 for Tiger Enterprises and Bartun Concreting), CRTEST3C x 3 with a tester,
      CR/COLOUR (the max quantity in colour, else 1) and CR/Washout (m³ / 6, up) when coloured. Their prices are the
      customer's price list for those codes. */
-export const DELIVERY = { Hebel: 450, Rediwall: 450, NRG: 250, Bricks: 250, Bluedeck: 250 };
+export const DELIVERY = { Hebel: 450, Rediwall: 450, NRG: 250, Bricks: 250, Bluedeck: 250, Others: 250 };   /* Others: the price book's default */
 export const REO_TRUCK = 350;
 export const IMPC_RATE = 0.075;
 export const WP_LOCATIONS = [['Sydney', 'Sydney'], ['NSW', 'NSW (long distance)'], ['Canberra', 'Canberra'], ['ACT', 'ACT (long distance)']];

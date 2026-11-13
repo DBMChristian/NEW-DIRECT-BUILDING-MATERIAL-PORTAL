@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import AddressInput from '../components/AddressInput.jsx';
+import { sendEmail, poEmailHtml } from '../lib/emailjs.js';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
 import { EPS_GRADES, epsKind, cutWidth, isPanel, cutSqm, cutBad, isFree, lineName, customMissing } from '../lib/custom.js';
@@ -49,7 +50,9 @@ export default function NewOrder() {
   const [lines, setLines] = useState([]);          /* { key, product_id, code, name, unit, category, qty, price, list, reason } */
   const [loadsHand, setLoadsHand] = useState(null); /* null: one load per material by itself; else the loads as arranged */
   const [loadInfo, setLoadInfo] = useState({});    /* the automatic loads' day, site, questions, by material */
-  const [posHand, setPosHand] = useState(null);     /* null: one PO per supplier by itself; else the POs as arranged */
+  const [posHand, setPosHand] = useState(null);
+  const [posSend, setPosSend] = useState({});   /* Send Yes/No of the automatic POs */
+  const [preview, setPreview] = useState(null);     /* null: one PO per supplier by itself; else the POs as arranged */
   const [over, setOver] = useState({});            /* a charge typed over: { 'load|key': { price, qty, reason, off } } */
   const [notes, setNotes] = useState([]);
   const [priceLists, setPriceLists] = useState([]);
@@ -71,7 +74,7 @@ export default function NewOrder() {
     const ex = {}; f = 0;
     for (;;) { const { data } = await supabase.from('product_prices').select('product_id, list_id, price').range(f, f + 999); (data || []).forEach((r) => { (ex[r.product_id] = ex[r.product_id] || {})[r.list_id] = Number(r.price); }); if (!data || data.length < 1000) break; f += 1000; }
     setExtraPrices(ex);
-    const rt = await supabase.from('supplier_routes').select('portal, categories, supplier_id, supplier:suppliers(id, name, active)'); setRoutes(rt.data || []);
+    const rt = await supabase.from('supplier_routes').select('portal, categories, supplier_id, email_to, email_cc, supplier:suppliers(id, name, active)'); setRoutes(rt.data || []);
     const pls = await supabase.from('price_lists').select('id, name').order('sort'); setPriceLists(pls.data || []);
     const sp = await supabase.from('suppliers').select('id, name, active').eq('active', true).order('name'); setSuppliers(sp.data || []);
   };
@@ -130,13 +133,26 @@ export default function NewOrder() {
     const out = [];
     lines.forEach((l) => { const rt = routeOf(l.category); if (!rt) return;
       let P = out.find((x) => x.supplier_id === rt.supplier_id && x.portal === (rt.portal || ''));
-      if (!P) { P = { uid: 'auto-' + rt.supplier_id + '-' + rt.portal, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: {} }; out.push(P); }
+      if (!P) { P = { uid: 'auto-' + rt.supplier_id + '-' + rt.portal, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', send: (posSend['auto-' + rt.supplier_id + '-' + rt.portal] ?? null), items: {} }; out.push(P); }
       P.items[l.key] = l.qty; });
     return out;
-  }, [posHand, lines, routes]);
+  }, [posHand, lines, routes, posSend]);
   const arrangePos = () => posHand || pos.map((P) => ({ ...P, uid: key() }));
   const editPos = (fn) => setPosHand((Ps) => fn(Ps || pos.map((P) => ({ ...P }))));
   const stockKeys = lines.filter((l) => !pos.some((P) => qtyIn(P.items, l.key) > 0)).map((l) => l.key);
+
+  /* the PO email: the supplier's addresses (Admin › Suppliers), where and when the PO's products go, and its lines */
+  const emailOf = (P) => { const r = routes.find((x) => String(x.supplier_id) === String(P.supplier_id) && (x.portal || '') === (P.portal || '')) || routes.find((x) => String(x.supplier_id) === String(P.supplier_id));
+    return { to: (r?.email_to || []).join(','), cc: (r?.email_cc || []).join(',') }; };
+  const poMail = (P, number, orderNo = '') => {
+    const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), L = loads.find((x) => ks.some((k) => qtyIn(x.items, k) > 0)) || {};
+    const d = L.date ? new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    return { subject: (number || 'PO') + (orderNo ? ' · ' + orderNo : '') + ' · Direct Building Material · ' + (o.customer?.name || '') + (d ? ' · ' + d : ''),
+      html: poEmailHtml({ po: number, supplier: P.supplier, portal: P.portal, order: orderNo || 'number given on placing', customer: o.customer?.name, deliverTo: P.deliverTo, site: L.site || headSite, date: d, time: L.time,
+        fulfil: L.fulfil, contact: [o.contact_name, phoneOut(o)].filter(Boolean).join(' · '), note: P.notes,
+        lines: ks.map((k) => { const l = lineOf(k); return { code: l.code, name: lineName(l), qty: Number(P.items[k]), unit: l.unit }; }) }) };
+  };
+  const setPoSend = (P, v) => { if (posHand) editPos((Ps) => Ps.map((x) => (x.uid === P.uid ? { ...x, send: v } : x))); else setPosSend((m) => ({ ...m, [P.uid]: v })); };
 
   /* customer search */
   useEffect(() => { const t = cq.trim(); if (t.length < 2 || o.customer) { setCHits([]); return; }
@@ -268,7 +284,9 @@ export default function NewOrder() {
         if (no('coloured')) return 'Concrete: coloured, Yes or No.';
         if (a.coloured === 'yes' && no('colour')) return 'Concrete: enter the colour.'; } }
     const note = allCharges.find((x) => !x.off && x.note); if (note) return 'Build Load: ' + note.note + '.';
-    for (const P of pos) if (!P.supplier_id) return 'Build PO: choose the supplier of each PO.';
+    for (const [i, P] of pos.entries()) { if (!P.supplier_id) return 'Build PO: choose the supplier of PO ' + (i + 1) + '.';
+      if (o.kind === 'order' && P.send == null) return 'Build PO: choose Send Yes or No on PO ' + (i + 1) + ' (' + P.supplier + ').';
+      if (P.send && !emailOf(P).to) return 'Build PO: ' + P.supplier + ' has no email in Admin › Suppliers.'; }
     return '';
   }, [o, lines, loads, pos, allCharges]);
 
@@ -298,7 +316,7 @@ export default function NewOrder() {
         if (chs.length) { const r = await supabase.from('order_lines').insert(chs); if (r.error) throw r.error; }
       }
       for (const [i, P] of pos.entries()) {
-        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', notes: P.notes || '', sort: i }).select('id').single();
+        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', notes: P.notes || '', send: P.send ?? null, sort: i }).select('id').single();
         if (pr.error) throw pr.error;
         const its = Object.entries(P.items).filter(([, v]) => Number(v) > 0 && true).map(([k, v]) => ({ po_id: pr.data.id, line_id: lineId[k], qty: Number(v) })).filter((x) => x.line_id);
         if (its.length) { const r = await supabase.from('order_po_items').insert(its); if (r.error) throw r.error; }
@@ -307,7 +325,7 @@ export default function NewOrder() {
     } catch (e) { setMsg({ bad: true, text: 'Not saved: ' + (e.message || e) }); return o.id; }
     finally { busyRef.current = false; }
   };
-  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o,  lines, loadsHand, loadInfo, posHand, over]);
+  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o, posSend,  lines, loadsHand, loadInfo, posHand, over]);
 
   const place = async () => {
     if (missing) { setMsg({ bad: true, text: 'Not ready: ' + missing }); return; }
@@ -316,7 +334,12 @@ export default function NewOrder() {
     const { data, error } = await supabase.rpc('place_order', { p_id: id });
     setBusy(false);
     if (error) { setMsg({ bad: true, text: error.message }); return; }
-    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name });
+    /* the PO emails, with their numbers (EmailJS, from orders@) */
+    const sent = [], failed = [];
+    for (const x of data.pos || []) { const P = pos[x.sort]; if (!P) continue; const em = emailOf(P), m = poMail(P, x.number, data.number);
+      try { await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); sent.push(x.number + ' to ' + P.supplier); }
+      catch (e) { failed.push(x.number + ' to ' + P.supplier + ': ' + e.message); } }
+    setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name, sent, failed });
   };
   /* Unfinished forms: the drafts that have a company or a total; Continue DRAFT-n opens the last one (as before) */
   const [drafts, setDrafts] = useState([]);
@@ -339,7 +362,7 @@ export default function NewOrder() {
     setLines(L2);
     setLoadsHand((lds.data || []).map((L, i) => ({ uid: key(), n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
       items: Object.fromEntries((lis.data || []).filter((x) => x.load_id === L.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
-    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, deliverTo: P.deliver_to, notes: P.notes,
+    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, deliverTo: P.deliver_to, notes: P.notes, send: P.send,
       items: Object.fromEntries((pis.data || []).filter((x) => x.po_id === P.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
     setOver({}); setLoadInfo({}); setTab('so');
     if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
@@ -351,7 +374,9 @@ export default function NewOrder() {
   if (done) return (
     <>
       <PageHeader title={done.kind === 'quote' ? 'QUOTE SAVED' : 'ORDER PLACED'} sub={done.number + ' · ' + done.customer + ' · ' + cash(done.total)} />
-      <div className="no-done"><div className="no-card"><h2>{done.number}</h2><p>{done.kind === 'quote' ? 'The quote is saved.' : 'The order is placed: it is on Home under Pending, and its invoice is in the Xero queue (Admin › Not yet in Xero).'}</p>
+      <div className="no-done"><div className="no-card"><h2>{done.number}</h2><p>{done.kind === 'quote' ? 'The quote is saved.' : 'The order is placed: it is on Home under Pending, and its invoice and POs are in the Xero queue (Admin › Not yet in Xero).'}</p>
+        {(done.sent || []).length > 0 && <p className="msg">PO emails sent: {done.sent.join(' · ')}.</p>}
+        {(done.failed || []).length > 0 && <p className="msg bad">Not sent: {done.failed.join(' · ')}. Send them from the order page.</p>}
         <div className="no-row"><button type="button" className="btn btn-red" onClick={restart}>New order</button><button type="button" className="btn" onClick={() => nav('/')}>Home</button></div></div></div>
     </>
   );
@@ -520,8 +545,11 @@ export default function NewOrder() {
                 <div className="no-load">
                   <label className="no-f">Supplier<select value={P.supplier_id || ''} onChange={(e) => { const sp = suppliers.find((x) => String(x.id) === e.target.value); const rt = routes.find((r) => String(r.supplier_id) === e.target.value); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, supplier_id: sp?.id || null, supplier: sp?.name || '', portal: rt?.portal || '' } : x))); }}><option value="">Choose…</option>{suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></label>
                   <label className="no-f">Deliver to<Seg value={P.deliverTo} set={(v) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, deliverTo: v } : x)))} options={[['site', "Customer's site"], ['penrith', 'Penrith warehouse']]} /></label>
+                  <div className={'no-f' + (o.kind === 'order' && P.send == null ? ' no-need' : '')}>Send order <span className="req">*</span><Seg value={P.send == null ? '' : P.send ? 'yes' : 'no'} set={(v) => setPoSend(P, v === 'yes')} options={[['yes', 'Yes'], ['no', 'No']]} /></div>
                   <label className="no-f no-grow">Note to the supplier<input value={P.notes} onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, notes: e.target.value } : x)))} placeholder="Optional" /></label>
                 </div>
+                <div className="no-poem">{P.send === false ? <span>Not sent: kept with the order only.</span> : (() => { const em = emailOf(P); return em.to ? <span>Email to <b>{em.to}</b>{em.cc ? <> · CC {em.cc}</> : null}{P.portal ? ' · ' + P.portal : ''}</span> : <span className="no-warn">No email for {P.supplier || 'this supplier'}: add it in Admin › Suppliers.</span>; })()}
+                  <button type="button" className="btn" onClick={() => setPreview(poMail(P, ''))}>Preview email</button></div>
                 <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th>Move to</th></tr></thead><tbody>
                   {Object.entries(P.items).filter(([, v]) => Number(v) > 0).map(([k, v]) => { const l = lineOf(k); if (!l) return null; return (
                     <tr key={k}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
@@ -566,6 +594,9 @@ export default function NewOrder() {
           </section>}
         </div>
 
+        {preview && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-label="Email preview" onClick={(e) => { if (e.target === e.currentTarget) setPreview(null); }}>
+          <div className="no-prevbox"><div className="no-prevh"><b>Email preview</b><small>Subject: {preview.subject}</small><button type="button" className="ap-x" onClick={() => setPreview(null)} aria-label="Close">×</button></div>
+            <div className="no-prevmail" dangerouslySetInnerHTML={{ __html: preview.html }} /></div></div>}
         <aside className="no-side" aria-label="The order">
           <section className="no-card">
             <div className="no-ct">The {o.kind === 'quote' ? 'quote' : 'order'}</div>

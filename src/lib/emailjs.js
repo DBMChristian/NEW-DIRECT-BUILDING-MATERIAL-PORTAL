@@ -37,3 +37,30 @@ export function tempPassword() {
   const a = 'abcdefghjkmnpqrstuvwxyz', d = '23456789', pick = (s) => s[crypto.getRandomValues(new Uint32Array(1))[0] % s.length];
   return Array.from({ length: 4 }, () => pick(a + d)).join('') + pick(d) + pick(a) + '-' + Array.from({ length: 4 }, () => pick(a)).join('');
 }
+
+/* any email through Direct's template (to, cc, subject, the HTML body) */
+export async function sendEmail({ to, cc = '', bcc = '', subject, html }) {
+  const r = await fetch('https://api.emailjs.com/api/v1.0/email/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service_id: SERVICE, template_id: TEMPLATE, user_id: KEY, template_params: { to_email: to, cc_email: cc, bcc_email: bcc, subject, html_body: html } }) });
+  if (!r.ok) throw new Error('EmailJS: ' + ((await r.text()) || r.status));
+}
+
+/* the PO email to a supplier (13 Nov 2026), as the previous portal's: Direct's header, the PO number, where and when it
+   goes, Direct's own lines (code, description, quantity), no prices, the note, and who to contact */
+export function poEmailHtml({ po, supplier, portal, order, customer, deliverTo, site, date, time, fulfil, contact, lines, note }) {
+  const row = (l) => '<tr><td style="padding:8px 10px;border-top:1px solid #E7E5E4;font-family:Consolas,monospace;font-size:12px;color:#57534E">' + esc(l.code) + '</td><td style="padding:8px 10px;border-top:1px solid #E7E5E4;font-size:13px">' + esc(l.name) + '</td><td style="padding:8px 10px;border-top:1px solid #E7E5E4;font-size:13px;text-align:right;font-weight:bold">' + esc(l.qty) + ' ' + esc(l.unit || '') + '</td></tr>';
+  const kv = (k, v) => (v ? '<tr><td style="padding:3px 0;color:#78716C;font-size:12px;width:130px">' + k + '</td><td style="padding:3px 0;font-size:13px;font-weight:bold">' + esc(v) + '</td></tr>' : '');
+  const where = deliverTo === 'penrith' ? 'Direct Building Material, 16 Cassola Place, Penrith NSW 2750' : site;
+  return '<div style="background:#F4F2EE;padding:24px 0;font-family:Arial,Helvetica,sans-serif;color:#1E1A17"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">'
+    + '<table role="presentation" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#fff;border-radius:10px;overflow:hidden">'
+    + '<tr><td style="background:#1E1A17;padding:18px 24px;border-bottom:4px solid #B91C1C"><span style="display:inline-block;background:#B91C1C;color:#fff;font-weight:900;font-size:16px;letter-spacing:1px;padding:4px 9px;border-radius:3px">DIRECT</span> <span style="color:#A8A29E;font-size:10px;font-weight:bold;letter-spacing:2px;margin-left:6px">BUILDING MATERIAL</span></td></tr>'
+    + '<tr><td style="padding:22px 24px"><div style="font-size:12px;color:#78716C;letter-spacing:1px">PURCHASE ORDER' + (portal ? ' · ' + esc(portal) : '') + '</div><div style="font-size:24px;font-weight:bold;margin:2px 0 4px">' + esc(po || 'PO (number on sending)') + '</div>'
+    + '<div style="font-size:14px;color:#44403C">To <b>' + esc(supplier) + '</b> · for order ' + esc(order || '') + '</div>'
+    + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;width:100%;background:#FAFAF9;border:1px solid #E7E5E4;border-radius:8px"><tr><td style="padding:12px 14px"><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%">'
+    + kv(fulfil === 'pickup' ? 'Pick-up' : 'Deliver to', fulfil === 'pickup' ? 'Picked up by Direct / the customer' : where) + kv('Date', date) + kv('Time', time) + kv('Site contact', contact) + kv('Customer', customer)
+    + '</table></td></tr></table>'
+    + '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #E7E5E4;border-radius:8px;overflow:hidden"><tr style="background:#F5F5F4"><th align="left" style="padding:8px 10px;font-size:11px;color:#57534E">CODE</th><th align="left" style="padding:8px 10px;font-size:11px;color:#57534E">DESCRIPTION</th><th align="right" style="padding:8px 10px;font-size:11px;color:#57534E">QTY</th></tr>' + lines.map(row).join('') + '</table>'
+    + (note ? '<div style="margin-top:14px;background:#FEF2F2;border-left:4px solid #DC2626;padding:10px 12px;font-size:13px"><b>Note:</b> ' + esc(note) + '</div>' : '')
+    + '<div style="font-size:12px;color:#78716C;margin-top:16px">Please confirm by replying to this email. Questions: orders@directbuildingmaterial.com.au</div></td></tr>'
+    + '<tr><td style="background:#1E1A17;color:#D6D3D1;font-size:11px;padding:12px 24px;text-align:center">Direct Building Material · 16 Cassola Place, Penrith NSW 2750</td></tr></table></td></tr></table></div>';
+}

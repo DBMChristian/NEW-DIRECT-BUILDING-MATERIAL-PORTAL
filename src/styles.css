@@ -676,3 +676,11 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-gate .btn{height:30px;padding:0 10px}.no-gate .btn.on{background:linear-gradient(#fde4e0,#f6c9c2);border-color:#c8483a;color:#7f1d1d;font-weight:800}
 .no-sumlist{max-height:none;overflow:visible}
 .no-autoi td{background:#FBFAFF}.no-autoi.off td{color:#A8A29E;text-decoration:line-through}
+
+/* Build PO: send it, its email, the preview (13 Nov 2026) */
+.no-poem{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:6px 10px;font-size:12.5px;background:#FFFDF5;border-bottom:1px solid #F0EEEA;flex-wrap:wrap}
+.no-poem .btn{height:26px}
+.no-prev{justify-content:center;align-items:flex-start;padding:30px 16px;overflow-y:auto}
+.no-prevbox{background:#fff;border-radius:10px;max-width:700px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3);overflow:hidden}
+.no-prevh{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #E7E5E4}.no-prevh small{color:#57534E;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.no-prevmail{max-height:75vh;overflow-y:auto}

@@ -300,8 +300,8 @@ export default function NewOrder() {
   return (
     <>
 
-      <div className="no">
-        <div className="no-main">
+      <div className="no-wrap">
+        <div className="no-top">
           <section className="no-card no-head" aria-label="Customer">
             <div className="no-bar"><h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>
               <span className="no-bar-r">
@@ -356,6 +356,9 @@ export default function NewOrder() {
               <div className="no-row"><button type="button" className="btn" onClick={() => setNewCust(null)}>Cancel</button><button type="button" className="btn btn-red" disabled={newCust.name.trim().length < 2} onClick={addCustomer}>Add customer</button></div>
             </div>}
           </section>
+        </div>
+      <div className="no">
+        <div className="no-main">
           <div className="no-tabs" role="tablist">{tabs.map(([k, n, t, d, c]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 
@@ -487,6 +490,7 @@ export default function NewOrder() {
             <div className="no-row"><button type="button" className="btn" onClick={async () => { await save(); setMsg({ text: 'Draft saved.' }); }}>Save draft</button><button type="button" className="btn" onClick={() => { if (window.confirm('Clear the form? The draft stays saved.')) restart(); }}>Clear</button></div>
           </section>
         </aside>
+      </div>
       </div>
     </>
   );

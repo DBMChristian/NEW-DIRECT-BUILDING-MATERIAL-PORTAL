@@ -616,3 +616,17 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-chip{border-radius:3px}
 .no-note{border-radius:4px;padding:6px 10px}
 .no-side .no-card{gap:8px}
+
+/* the top section across the whole width; the order summed up beside the tabs (13 Nov 2026) */
+.no-wrap{display:flex;flex-direction:column}
+.no-top{padding:10px 12px 0}
+.no-top .no-hd{grid-template-columns:repeat(5,minmax(0,1fr))}
+/* labels: the name and its * on one line, the box under them */
+.no-f{display:block}
+.no-f>input,.no-f>select,.no-f>.no-seg,.no-f>.no-mob,.no-f>.no-two,.no-f>.no-cwrap,.no-f>.no-cust,.no-f>.no-plans{display:flex;margin-top:4px;width:100%;box-sizing:border-box}
+.no-f>input,.no-f>select{display:block}
+.no-f .req{margin-left:2px}
+.no-f>.no-two{display:grid}
+.no-side{top:10px}
+@media (max-width:1200px){.no-top .no-hd{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:700px){.no-top .no-hd{grid-template-columns:1fr}}

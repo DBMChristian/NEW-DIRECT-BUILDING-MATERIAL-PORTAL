@@ -191,10 +191,15 @@ export default function NewOrder() {
     const inLoad = lines.map((l) => ({ ...l, qty: qtyIn(L.items, l.key) })).filter((l) => l.qty > 0);
     const cats = [...new Set(inLoad.map((l) => l.category))];
     const ch = cats.flatMap((c) => chargesFor(c, inLoad, L, ctx).map((x) => ({ ...x, cat: c, key: c + ':' + x.key })))
+      /* a charge goes on only when its product is in the list (Admin › Products, active): Reinforcement's delivery is
+         FR-CRANE/REO; its name is the product's (13 Nov 2026) */
+      .map((x) => (x.code === 'DELIVERY' && x.cat === 'Reinforcement' ? { ...x, code: 'FR-CRANE/REO' } : x))
+      .filter((x) => { const p = byCode.get(String(x.code).toLowerCase()); return p && p.active; })
+      .map((x) => { const p = byCode.get(String(x.code).toLowerCase()); return { ...x, name: x.code === 'WPDEL' || x.code === 'WPSB' ? x.name : p.name || x.name, product_id: p.id }; })
       .map((x) => { const ov = over[L.uid + '|' + x.key] || {}; return { ...x, load: L.uid, list: x.price, price: ov.price ?? x.price, qty: ov.qty ?? x.qty, reason: ov.reason || '', off: !!ov.off }; });
     return { L, inLoad, cats, ch };
   }), [loads, lines, over, products, extraPrices, o.customer]);
-  const impc = impcFor(lines);
+  const impc = byCode.get('impc')?.active ? impcFor(lines) : null;
   const allCharges = [...(impc ? [{ ...impc, load: '', list: impc.price, reason: '', off: false }] : []), ...loadCharges.flatMap((x) => x.ch)];
   const goods = r2(lines.reduce((s, l) => s + r2(l.qty * l.price), 0)), chSum = r2(allCharges.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0));
   const sub = r2(goods + chSum), gst = r2(sub * 0.1), total = r2(sub + gst);
@@ -331,7 +336,8 @@ export default function NewOrder() {
       <div className="no-load no-qs"><b className="no-qt">Waffle pods</b>
         {pick('location', 'Location', WP_LOCATIONS)}
         {(a.location === 'NSW' || a.location === 'ACT') && text('hours', 'Driving time (hours, one way)', 'e.g. 2.5')}
-        {yn('scrap', 'Scrap pick-up')}{yn('trailer', 'Trailer access')}{text('gate', 'Gate code', 'Code, or N/A')}
+        {yn('scrap', 'Scrap pick-up')}{yn('trailer', 'Trailer access')}
+        <div className={'no-f' + need(a.gate)}>Gate code <span className="req">*</span><span className="no-gate"><input value={a.gate || ''} onChange={(e) => set({ gate: e.target.value })} placeholder="Code" /><button type="button" className={'btn' + (a.gate === 'N/A' ? ' on' : '')} onClick={() => set({ gate: 'N/A' })}>N/A</button></span></div>
       </div>);
     return (
       <div className="no-load no-qs"><b className="no-qt">Concrete</b>
@@ -345,7 +351,7 @@ export default function NewOrder() {
   const catDelivery = (c) => loads.some((L) => L.fulfil === 'delivery' && lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0));
   /* a function, not a component: the price box keeps its focus while typing */
   const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
-    <tr key={x.load + x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
+    <tr key={x.load + x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}<small className="no-code">{x.code}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
       <td className="r">{x.locked ? cash(x.price) : <><input className={'no-price' + (changed ? ' ch' : '')} value={x.price} disabled={x.off} inputMode="decimal" onChange={(e) => setCharge(x, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + x.name} />
         {changed && !x.off && <input className={'no-reason' + (x.reason.trim().length < 3 ? ' need' : '')} value={x.reason} onChange={(e) => setCharge(x, { reason: e.target.value })} placeholder="Reason for the price *" />}</>}</td>
       <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
@@ -520,7 +526,7 @@ export default function NewOrder() {
                       <td><input className="no-price" value={qtyIn(L.items, l.key)} inputMode="decimal" onChange={(e) => setLoadQty(L.uid, l.key, Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)} aria-label={'Quantity of ' + l.name + ' on load ' + L.n} /></td>
                       <td><select className="no-move" value="" onChange={(e) => e.target.value && moveToLoad(l.key, L.uid, e.target.value)}><option value="">Move…</option>{loads.filter((x) => x.uid !== L.uid).map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}</select></td></tr>))}
                   {ch.length > 0 && <tr className="no-chh"><td colSpan="4">ADDITIONAL CHARGES FOR THIS LOAD</td></tr>}
-                  {ch.map((x) => <tr key={x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td><td colSpan="2">{x.off ? 'removed (Build SO)' : cash(r2(x.qty * x.price))}</td></tr>)}
+                  {ch.map((x) => <tr key={x.key} className={'no-chr' + (x.off ? ' off' : '')}><td>{x.name}<small className="no-code">{x.code}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td><td colSpan="2">{x.off ? 'removed (Build SO)' : cash(r2(x.qty * x.price))}</td></tr>)}
                 </tbody></table></div>
               </div>); })}
             {lines.filter((l) => Math.abs(loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0) - l.qty) > 1e-6).map((l) => <p key={l.key} className="no-miss">{l.name}: {loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0)} of {l.qty} on loads.</p>)}
@@ -538,9 +544,9 @@ export default function NewOrder() {
               <div key={c} className="no-sg">
                 <div className="no-sgh" style={{ background: HEAD[c] }}>{c}<b>{cash(r2(ls.reduce((t, l) => t + r2(l.qty * l.price), 0) + chs.reduce((t, x) => t + r2(x.qty * x.price), 0)))}</b></div>
                 <div className="no-ssh">Items</div>
-                {ls.map((l) => <div key={l.key} className="no-si"><span>{lineName(l)}<small>{Number(l.qty)} {l.unit} × {cash(l.price)}</small></span><b>{cash(r2(l.qty * l.price))}</b></div>)}
+                {ls.map((l) => <div key={l.key} className="no-si"><span>{lineName(l)}<small>{l.code} · {Number(l.qty)} {l.unit} × {cash(l.price)}</small></span><b>{cash(r2(l.qty * l.price))}</b></div>)}
                 {chs.length > 0 && <><div className="no-ssh">Additional charges</div>
-                  {chs.map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
+                  {chs.map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
               </div>); })}</div>}
             {pos.length > 0 && <div className="no-what">{pos.map((P, i) => 'PO ' + (i + 1) + ' to ' + (P.supplier || '…').replace(' Pty Ltd', '')).join(' · ')}{stockKeys.length ? ' · from Penrith stock' : ''}</div>}
             <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>

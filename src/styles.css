@@ -669,3 +669,9 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-fold{border:0;background:rgba(255,255,255,.18);color:#fff;width:22px;height:22px;border-radius:4px;font:inherit;font-size:12px;cursor:pointer;display:grid;place-items:center;flex:none}
 .no-fold:hover{background:rgba(255,255,255,.32)}
 .no-foldall{margin-left:auto;display:flex;gap:14px;font-size:12.5px;font-weight:600}
+
+/* charges show their code; gate code N/A; the side list shows every line (13 Nov 2026) */
+.no-code{display:block;font-size:11px;color:#78716C;font-family:ui-monospace,Consolas,monospace;text-decoration:none}
+.no-gate{display:flex;gap:6px;margin-top:4px}.no-gate input{flex:1;min-width:0;height:30px;border:1px solid #b9c0c8;border-radius:3px;padding:0 8px;font:inherit;font-size:13px}
+.no-gate .btn{height:30px;padding:0 10px}.no-gate .btn.on{background:linear-gradient(#fde4e0,#f6c9c2);border-color:#c8483a;color:#7f1d1d;font-weight:800}
+.no-sumlist{max-height:none;overflow:visible}

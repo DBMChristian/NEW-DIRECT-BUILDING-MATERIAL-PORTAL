@@ -522,3 +522,8 @@ a.ad-row:hover{background:#FAFAF9}
 .no-qt{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#57534E;width:100%}
 .no-chh span{font-weight:600;letter-spacing:0;color:#A8A29E;text-transform:none}
 @media (max-width:820px){.no-tabs{grid-template-columns:1fr}}
+
+/* products: Active, the first column (13 Nov 2026) */
+.pp-acth{width:56px;text-align:center!important}.pp-actc{text-align:center}
+.pp-act{width:18px;height:18px;accent-color:var(--red);cursor:pointer;vertical-align:middle}
+tr.pp-off td:not(.pp-actc){opacity:.5}

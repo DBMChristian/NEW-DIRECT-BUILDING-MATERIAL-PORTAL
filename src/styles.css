@@ -535,3 +535,8 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 /* Products: concrete's groups inside its section (13 Nov 2026) */
 .pp-sub td{background:#FEF9C3;color:#854D0E;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px 6px 18px;border-left:4px solid #CA8A04}
 .pp-sub small{font-weight:600;letter-spacing:0;margin-left:4px}.pp-sub-x td{background:#F5F5F4;color:#44403C;border-left-color:#A8A29E}
+
+/* Products: show or hide the not-active ones; the group count beside its name (13 Nov 2026) */
+.pp-showoff{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border:1px solid #D6D3D1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.pp-showoff input{accent-color:var(--red);width:16px;height:16px}.pp-showoff small{color:#57534E;font-weight:600}
+.pp-sub .pp-subn,.pp-sub .pp-subc{display:inline!important}

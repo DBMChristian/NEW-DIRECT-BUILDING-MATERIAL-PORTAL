@@ -86,7 +86,7 @@ export default function AdminProducts() {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [show, setShow] = useState('active');
-  const [sold, setSold] = useState('');
+  const [showOff, setShowOff] = useState(false);   /* not-active products: hidden unless ticked */
   const [n, setN] = useState(100);
   const [params, setParams] = useSearchParams();
   const [lists, setLists] = useState([]);
@@ -129,7 +129,7 @@ export default function AdminProducts() {
   const [type, setType] = useState('');
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero : !r.in_xero)) && (!sold || (sold === 'yes' ? r.active : !r.active)) && (!cat || (cat === '-' ? !r.category : r.category === cat)) && (!type || r.sub_category === type)
+    return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero : !r.in_xero)) && (showOff || r.active) && (!cat || (cat === '-' ? !r.category : r.category === cat)) && (!type || r.sub_category === type)
       && (!t || (r.code + ' ' + r.name + ' ' + r.description + ' ' + r.category).toLowerCase().includes(t)));
   }, [rows, q, cat, show, type]);
   const groups = useMemo(() => [...CATEGORIES, ''].map((c) => ({ key: c || '-', label: c || 'No category yet', rows: list.filter((r) => (r.category || '') === c) })).filter((g) => g.rows.length), [list]);
@@ -156,7 +156,7 @@ export default function AdminProducts() {
           <select value={cat} onChange={(e) => { setCat(e.target.value); setN(100); }} aria-label="Category"><option value="">All categories</option><option value="-">No category yet</option>{cats.map((c) => <option key={c}>{c}</option>)}</select>
           <select value={type} onChange={(e) => { setType(e.target.value); setN(100); }} aria-label="Sub category"><option value="">Items and charges</option>{TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="active">In Xero</option><option value="gone">No longer in Xero</option><option value="all">All</option></select>
-          <select value={sold} onChange={(e) => { setSold(e.target.value); setN(100); }} aria-label="Active"><option value="">Active and not</option><option value="yes">Active (sold)</option><option value="no">Not active</option></select>
+          <label className="pp-showoff"><input type="checkbox" checked={showOff} onChange={(e) => { setShowOff(e.target.checked); setN(100); }} /> Show not active <small>{(rows || []).filter((r) => !r.active).length}</small></label>
           <button type="button" className="btn" onClick={addList}>+ Price list</button>
           <span className="pp-count">{rows === null ? 'Loading…' : list.length + ' of ' + rows.length + ' products'}</span>
         </div>
@@ -171,7 +171,7 @@ export default function AdminProducts() {
                   {isOpen(g.key) && <>
                 {(g.key === 'Concrete' ? sortConcrete(g.rows) : g.rows).map((p, i, arr) => (
                 <Fragment key={p.id}>
-                {g.key === 'Concrete' && (i === 0 || concreteGroup(arr[i - 1]) !== concreteGroup(p)) && <tr className={'pp-sub' + (concreteGroup(p) === 'Additional charges' ? ' pp-sub-x' : '')}><td colSpan={11 + lists.length}>{concreteGroup(p)} <small>{arr.filter((x) => concreteGroup(x) === concreteGroup(p)).length}</small></td></tr>}
+                {g.key === 'Concrete' && (i === 0 || concreteGroup(arr[i - 1]) !== concreteGroup(p)) && <tr className={'pp-sub' + (concreteGroup(p) === 'Additional charges' ? ' pp-sub-x' : '')}><td colSpan={11 + lists.length}><span className="pp-subn">{concreteGroup(p)}</span> <small className="pp-subc">{arr.filter((x) => concreteGroup(x) === concreteGroup(p)).length}</small></td></tr>}
                 <tr key={p.id} className={(p.in_xero ? '' : 'pp-gone') + (p.active ? '' : ' pp-off')} style={{ '--cc': catColor(p.category) }}>
                   <td className="pp-actc"><Active p={p} onSaved={patch} /></td>
                   <td className="pp-code">{p.code}</td>

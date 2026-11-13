@@ -52,7 +52,7 @@ export default function Home() {
     const h = setTimeout(async () => {
       const [c, e] = await Promise.all([
         supabase.from('customers').select('id, name, email, phone, mobile, terms, credit_limit, xero_awaiting_payment, xero_awaiting_approval').or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},mobile.ilike.${like},abn.ilike.${like}`).limit(20),
-        supabase.from('enquiries').select('*').or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like},product.ilike.${like},location.ilike.${like}`).limit(20),
+        supabase.from('enquiries').select('*').or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like},product.ilike.${like},site_address.ilike.${like}`).limit(20),
       ]);
       setHits({ customers: c.data || [], enquiries: e.data || [], orders: [], invoices: [] });
     }, 200);
@@ -130,7 +130,9 @@ export default function Home() {
                 {(enq || []).map((e) => (
                   <div key={e.id} className="hm-card" style={{ '--c': e.status === 'new' ? '#0891B2' : '#94A3B8' }}>
                     <div className="hm-row"><b>{e.name || 'No name'}</b><span className={'hm-chip ' + (e.status === 'new' ? 'hm-c-teal' : 'hm-c-indigo')}>{e.status === 'new' ? 'NEW' : (e.taken_by_name || 'WORKING').toUpperCase()} · {ago(e.created_at)}</span></div>
-                    <div className="hm-meta">{[e.product, e.location, e.phone].filter(Boolean).join(' · ')}</div>
+                    <div className="hm-meta">{[e.product, e.site_address || e.location, e.phone].filter(Boolean).join(' · ')}</div>
+                    {e.message && <div className="hm-msg">{e.message}</div>}
+                    {e.attachment_url && <a className="hm-att" href={e.attachment_url} target="_blank" rel="noreferrer">Their plans ↗</a>}
                     <div className="hm-row hm-acts">{e.status === 'new' && <button type="button" className="hm-btn hm-red-btn" onClick={() => take(e)}>I'll take it</button>}{e.phone && <a className="hm-btn" href={'tel:' + e.phone.replace(/[^0-9+]/g, '')}>Call</a>}</div>
                   </div>
                 ))}

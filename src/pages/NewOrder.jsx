@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
-import { CON_GROUPS, concreteGroup, mpa } from '../lib/concrete.js';
+import { groupsOf } from '../lib/groups.js';
 
 /* New Order (13 Nov 2026), with the previous portal's three tabs under the customer:
    1 Build SO: what the customer buys, one invoice (products, prices with reasons, the additional charges);
@@ -277,9 +277,10 @@ export default function NewOrder() {
                 <div key={p.id} className="no-ri"><div><b>{p.name}</b><small>{p.code} · {p.unit || 'each'}</small></div>
                   <span className="no-from">{rt ? rt.supplier?.name?.replace(' Pty Ltd', '') + ' · ' + (rt.portal || 'email') : 'Penrith stock'}</span>
                   <span className="no-p">{cash(priceFor(p))}</span><button type="button" className="btn btn-red" onClick={() => add(p)}>Add</button></div>); };
-              /* concrete: the mixes by kind (weakest first), then the additional charges */
-              if (!shown.every((p) => p.category === 'Concrete')) return shown.map(row);
-              return CON_GROUPS.map((gname) => { const ps = shown.filter((p) => concreteGroup(p) === gname).sort((a, b) => mpa(a) - mpa(b) || a.name.localeCompare(b.name)); return ps.length ? [<div key={'g-' + gname} className={'no-rg' + (gname === 'Additional charges' ? ' no-rg-x' : '')}>{gname} <small>{ps.length}</small></div>, ...ps.map(row)] : null; });
+              /* concrete and waffle pods: in their groups, then the additional charges */
+              const c0 = shown[0].category, gr = shown.every((p) => p.category === c0) ? groupsOf(c0) : null;
+              if (!gr) return shown.map(row);
+              return gr.names.map((gname) => { const ps = shown.filter((p) => gr.of(p) === gname).sort(gr.sort); return ps.length ? [<div key={'g-' + gname} className={'no-rg no-rg-' + c0.toLowerCase() + (gname === 'Additional charges' ? ' no-rg-x' : '')}>{gname} <small>{ps.length}</small></div>, ...ps.map(row)] : null; });
             })()}</div>}
             {q.trim().length >= 2 && !shown.length && <p className="no-sub">No product matches.</p>}
           </section>

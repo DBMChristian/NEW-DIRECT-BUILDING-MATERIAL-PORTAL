@@ -540,3 +540,8 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .pp-showoff{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border:1px solid #D6D3D1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
 .pp-showoff input{accent-color:var(--red);width:16px;height:16px}.pp-showoff small{color:#57534E;font-weight:600}
 .pp-sub .pp-subn,.pp-sub .pp-subc{display:inline!important}
+
+/* waffle pods' groups in their own colour (13 Nov 2026) */
+.pp-sub-wafflepods td{background:#EDE9FE;color:#5B21B6;border-left-color:#7C3AED}
+.no-rg-wafflepods{background:#EDE9FE;color:#5B21B6;border-top-color:#DDD6FE}
+.pp-sub-wafflepods.pp-sub-x td{background:#F5F5F4;color:#44403C;border-left-color:#A8A29E}

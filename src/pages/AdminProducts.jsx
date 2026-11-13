@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
-import { concreteGroup, sortConcrete } from '../lib/concrete.js';
+import { groupsOf, sortGrouped } from '../lib/groups.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
@@ -169,9 +169,9 @@ export default function AdminProducts() {
                 <Fragment key={g.key}>
                   <tr className="pp-grp" style={{ '--cc': catColor(g.key === '-' ? '' : g.key) }}><td colSpan={11 + lists.length}><button type="button" onClick={() => setOpen({ ...open, [g.key]: !open[g.key] })} aria-expanded={isOpen(g.key)}><span>{isOpen(g.key) ? '▾' : '▸'}</span><i className="pp-dot-c" /> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
                   {isOpen(g.key) && <>
-                {(g.key === 'Concrete' ? sortConcrete(g.rows) : g.rows).map((p, i, arr) => (
+                {sortGrouped(g.key, g.rows).map((p, i, arr) => { const gr = groupsOf(g.key), sg = gr && gr.of(p); return (
                 <Fragment key={p.id}>
-                {g.key === 'Concrete' && (i === 0 || concreteGroup(arr[i - 1]) !== concreteGroup(p)) && <tr className={'pp-sub' + (concreteGroup(p) === 'Additional charges' ? ' pp-sub-x' : '')}><td colSpan={11 + lists.length}><span className="pp-subn">{concreteGroup(p)}</span> <small className="pp-subc">{arr.filter((x) => concreteGroup(x) === concreteGroup(p)).length}</small></td></tr>}
+                {gr && (i === 0 || gr.of(arr[i - 1]) !== sg) && <tr className={'pp-sub' + (sg === 'Additional charges' ? ' pp-sub-x' : '') + ' pp-sub-' + g.key.toLowerCase()}><td colSpan={11 + lists.length}><span className="pp-subn">{sg}</span> <small className="pp-subc">{arr.filter((x) => gr.of(x) === sg).length}</small></td></tr>}
                 <tr key={p.id} className={(p.in_xero ? '' : 'pp-gone') + (p.active ? '' : ' pp-off')} style={{ '--cc': catColor(p.category) }}>
                   <td className="pp-actc"><Active p={p} onSaved={patch} /></td>
                   <td className="pp-code">{p.code}</td>
@@ -186,8 +186,7 @@ export default function AdminProducts() {
                   {lists.map((l) => <td key={l.id} className="r"><ListPrice p={p} list={l} value={(extra[p.id] || {})[l.id]} onSaved={patchExtra} /></td>)}
                   <td className="r pp-muted">{money(p.xero_cost_price)}</td>
                 </tr>
-                </Fragment>
-                ))}
+                </Fragment>); })}
                   </>}
                 </Fragment>
               ))}

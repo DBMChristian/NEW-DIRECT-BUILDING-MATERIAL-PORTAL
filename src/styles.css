@@ -402,3 +402,23 @@ a.ad-row:hover{background:#FAFAF9}
 .hm-dpick{gap:8px;border:0;border-left:1px solid #E7E5E4;border-right:1px solid #E7E5E4;background:none;font:inherit;font-size:13.5px;font-weight:700;color:var(--ink)}
 .hm-dpick:hover{background:#F5F5F4}
 .hm-dpick input{position:absolute;left:50%;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;inset:auto}
+
+/* the date box: arrows, the day button and the hidden calendar input side by side, never cut off (13 Nov 2026) */
+.hm-search{min-width:0}
+.hm-date{flex:none;position:relative}
+.hm-dpick{position:static;display:flex;align-items:center;height:46px;padding:0 14px;cursor:pointer;white-space:nowrap}
+.hm-dinput{position:absolute;left:50%;top:100%;width:0;height:0;padding:0;border:0;opacity:0;pointer-events:none}
+
+/* the date box and its calendar (13 Nov 2026): the box never clips, the calendar opens under it */
+.hm-date{overflow:visible!important}
+.hm-date>button:first-child{border-radius:11px 0 0 11px}.hm-date>button:last-of-type{border-radius:0 11px 11px 0}
+.hm-cal-shade{position:fixed;inset:0;background:transparent;border:0;z-index:30;cursor:default}
+.hm-cal{position:absolute;top:calc(100% + 6px);right:0;z-index:31;width:280px;background:#fff;border:1px solid #D6D3D1;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.15);padding:12px}
+.hm-cal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.hm-cal-h b{font-size:14px}
+.hm-cal-h button{width:32px;height:32px;border:1px solid #E7E5E4;border-radius:8px;background:#fff;font:inherit;font-size:16px;cursor:pointer}
+.hm-cal-g{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.hm-cal-w{font-size:11px;font-weight:700;color:#78716C;text-align:center;padding:4px 0}
+.hm-cal-d{height:34px;border:0;border-radius:8px;background:none;font:inherit;font-size:13px;cursor:pointer;color:var(--ink)}
+.hm-cal-d:hover{background:#F5F5F4}.hm-cal-d.now{outline:1.5px solid var(--red);outline-offset:-2px;font-weight:700}
+.hm-cal-d.on{background:var(--ink);color:#fff;font-weight:700}
+.hm-cal-f{display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid #F0EEEA}

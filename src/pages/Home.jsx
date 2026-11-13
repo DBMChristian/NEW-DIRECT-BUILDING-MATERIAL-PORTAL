@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
@@ -58,6 +58,24 @@ function EnquiryPanel({ e, me, onClose, onSaved }) {
   );
 }
 
+/* the calendar under the date box: a month at a time, today marked, the chosen day dark (13 Nov 2026) */
+function MonthPicker({ value, onPick, onClose }) {
+  const [m, setM] = useState(new Date(value.getFullYear(), value.getMonth(), 1));
+  const today = startOf(new Date());
+  const first = (m.getDay() + 6) % 7;   /* Monday first */
+  const days = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+  const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => new Date(m.getFullYear(), m.getMonth(), i + 1))];
+  useEffect(() => { const k = (e) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
+  return (
+    <div className="hm-cal" role="dialog" aria-label="Choose a day">
+      <div className="hm-cal-h"><button type="button" aria-label="Month before" onClick={() => setM(new Date(m.getFullYear(), m.getMonth() - 1, 1))}>‹</button><b>{m.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}</b><button type="button" aria-label="Month after" onClick={() => setM(new Date(m.getFullYear(), m.getMonth() + 1, 1))}>›</button></div>
+      <div className="hm-cal-g">{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <span key={i} className="hm-cal-w">{d}</span>)}
+        {cells.map((d, i) => d ? <button key={i} type="button" className={'hm-cal-d' + (d.getTime() === value.getTime() ? ' on' : '') + (d.getTime() === today.getTime() ? ' now' : '')} onClick={() => onPick(d)}>{d.getDate()}</button> : <span key={i} />)}</div>
+      <div className="hm-cal-f"><button type="button" className="link" onClick={() => onPick(today)}>Today</button><button type="button" className="link" onClick={onClose}>Close</button></div>
+    </div>
+  );
+}
+
 function Col({ dot, title, sub, n, nColor, children, label }) {
   return (
     <section className="hm-col" aria-label={label || title}>
@@ -82,7 +100,7 @@ export default function Home() {
   const [codAll, setCodAll] = useState(false);
   const [hits, setHits] = useState(null);
   const [openEnq, setOpenEnq] = useState(null);
-  const dateRef = useRef(null);
+  const [calOpen, setCalOpen] = useState(false);
 
   const load = async () => {
     /* COD balance: every unpaid invoice of a COD customer (from Xero), oldest first */
@@ -133,11 +151,11 @@ export default function Home() {
           </label>
           <div className="hm-date">
             <button type="button" aria-label={range === 'week' ? 'Week before' : 'Day before'} onClick={() => shift(-1)}>‹</button>
-            <button type="button" className="hm-dpick" onClick={() => { const el = dateRef.current; if (!el) return; try { el.showPicker(); } catch { el.focus(); el.click(); } }} aria-label={'Choose a day: ' + dayName(day)}>
+            <button type="button" className="hm-dpick" onClick={() => setCalOpen(!calOpen)} aria-expanded={calOpen} aria-label={'Choose a day: ' + dayName(day)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
               <span>{dayName(day)}</span>
-              <input ref={dateRef} type="date" tabIndex={-1} aria-hidden="true" value={ymd(day)} onChange={(e) => e.target.value && setDay(startOf(new Date(e.target.value + 'T00:00:00')))} />
             </button>
+            {calOpen && <><button type="button" className="hm-cal-shade" aria-label="Close the calendar" onClick={() => setCalOpen(false)} /><MonthPicker value={day} onPick={(d) => { setDay(d); setCalOpen(false); }} onClose={() => setCalOpen(false)} /></>}
             <button type="button" aria-label={range === 'week' ? 'Week after' : 'Day after'} onClick={() => shift(1)}>›</button>
           </div>
         </div>

@@ -108,8 +108,7 @@ export default function AdminCustomers() {
   const [terms, setTerms] = useState('');
   const [open, setOpen] = useState(null);
   const [n, setN] = useState(100);
-  const [allHist, setAllHist] = useState(null);
-  const openAll = async () => { if (allHist) { setAllHist(null); return; } setAllHist([]); const { data } = await supabase.from('customer_history').select('*').order('at', { ascending: false }).limit(500); setAllHist(data || []); };
+
 
   const load = async () => {
     const all = []; let f = 0;
@@ -151,11 +150,9 @@ export default function AdminCustomers() {
           <div className="pp-xero"><span className={'pp-dot' + (status?.connected ? ' on' : '')} />
             <span>{status === null ? 'Checking Xero…' : status.error ? 'Xero: ' + status.error : status.connected ? <>Xero: <b>{status.tenant}</b> · syncs by itself every 30 minutes{last ? <> · last {when(last.finished_at || last.started_at)}{/^auto/.test(last.by_email || '') ? ' (auto)' : ' by ' + String(last.by_email || '').split('@')[0]}{last.ok === false ? ' · failed: ' + (last.error || '') : ''}</> : ' · not synced yet'}</> : 'Xero is not connected (Admin › Products)'}</span></div>
           {status?.connected && <button type="button" className="btn btn-red" onClick={sync} disabled={!!busy}><Icon name="sync" size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync from Xero'}</button>}
-          <button type="button" className="btn" onClick={openAll}>{allHist ? 'Hide history' : 'History'}</button>
           {status?.connected && <button type="button" className="link" onClick={reconnect} disabled={!!busy}>Reconnect</button>}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
-        {allHist && <section className="cu-allhist"><b>History of this page <small>the last 500 changes: who, when, which customer, from what to what</small></b><History rows={allHist} lists={lists} withName /></section>}
         <div className="pp-filters">
           <input type="search" className="pp-search" value={q} onChange={(e) => { setQ(e.target.value); setN(100); }} placeholder="Search a name, email, phone, suburb or ABN…" aria-label="Search customers" />
           <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="customers">Customers</option><option value="notes">With notes</option><option value="hold">On hold</option><option value="suppliers">Suppliers</option><option value="archived">Archived or gone from Xero</option><option value="all">Everyone</option></select>

@@ -141,6 +141,27 @@ export default function NewOrder() {
   const arrangePos = () => posHand || pos.map((P) => ({ ...P, uid: key() }));
   const editPos = (fn) => setPosHand((Ps) => fn(Ps || pos.map((P) => ({ ...P }))));
   const stockKeys = lines.filter((l) => !pos.some((P) => qtyIn(P.items, l.key) > 0)).map((l) => l.key);
+  /* arranged POs stay right (13 Nov 2026): a product on a PO whose portal cannot take its material (OrderConcrete takes
+     concrete, OrderPods waffle pods, OrderSteel the rest), or on no PO at all though its material has a supplier, goes
+     onto its supplier's PO (made when missing). Products put on Penrith stock by hand stay there. */
+  const [stockByHand, setStockByHand] = useState({});
+  const portalTakes = (portal, cat) => (portal === 'OrderConcrete' ? cat === 'Concrete' : portal === 'OrderPods' ? cat === 'Wafflepods' : portal === 'OrderSteel' ? cat !== 'Concrete' && cat !== 'Wafflepods' : true);
+  useEffect(() => {
+    if (!posHand || !routes.length) return;
+    let Ps = posHand.map((P) => ({ ...P, items: { ...P.items } })), changed = false;
+    for (const l of lines) {
+      const rt = routeOf(l.category); if (!rt) continue;
+      const on = Ps.filter((P) => Number(P.items[l.key] || 0) > 0), wrong = on.filter((P) => !portalTakes(P.portal, l.category));
+      if ((on.length && !wrong.length) || (!on.length && stockByHand[l.key])) continue;
+      const q = on.length ? wrong.reduce((t, P) => t + Number(P.items[l.key] || 0), 0) : Number(l.qty) || 0;
+      wrong.forEach((P) => { P.items[l.key] = 0; });
+      let T = Ps.find((P) => String(P.supplier_id) === String(rt.supplier_id) && (P.portal || '') === (rt.portal || ''));
+      if (!T) { T = { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', send: null, items: {} }; Ps.push(T); }
+      T.items[l.key] = Number(T.items[l.key] || 0) + q; changed = true;
+    }
+    Ps = Ps.filter((P) => Object.values(P.items).some((v) => Number(v) > 0) || !P.supplier_id || P.portal === '' );
+    if (changed) setPosHand(Ps);
+  }, [posHand, lines, routes, stockByHand]);
 
   /* the PO email: the supplier's addresses (Admin › Suppliers), where and when the PO's products go, and its lines */
   const emailOf = (P) => { const r = routes.find((x) => String(x.supplier_id) === String(P.supplier_id) && (x.portal || '') === (P.portal || '')) || routes.find((x) => String(x.supplier_id) === String(P.supplier_id));
@@ -219,7 +240,7 @@ export default function NewOrder() {
     /* arranged loads and POs: a new product goes on the first load of its material (else the first), and its supplier's PO */
     if (loadsHand) setLoadsHand((Ls) => { if (!Ls.length) return [{ ...blankLoad(1), items: { [k0]: 1 } }]; const i = Math.max(0, Ls.findIndex((L) => Object.keys(L.items).some((k) => lines.find((l) => l.key === k)?.category === c)));
       return Ls.map((L, j) => (j === i ? { ...L, items: { ...L.items, [k0]: 1 } } : L)); });
-    if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id); if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
+    if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id && (P.portal || '') === (rt.portal || ''));   /* its supplier AND its portal (13 Nov 2026) */ if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
       return [...Ps, { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: { [k0]: 1 } }]; }); }
   };
   /* cost from Xero (the product's purchase price), and the profit on it */
@@ -589,7 +610,7 @@ export default function NewOrder() {
                     <tr key={k}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                       <td><input className="no-price" value={v} inputMode="decimal" onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 } } : x)))} aria-label={'Order quantity of ' + l.name} /></td>
                       <td className="r no-cost">{unitCost(l) ? cash(unitCost(l)) : '—'}</td><td className="r"><b>{cash(r2(unitCost(l) * Number(v)))}</b></td>
-                      <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: 0 } } : to !== 'stock' && x.uid === to ? { ...x, items: { ...x.items, [k]: qtyIn(x.items, k) + Number(v) } } : x))); }}>
+                      <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; setStockByHand((m) => ({ ...m, [k]: to === 'stock' })); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: 0 } } : to !== 'stock' && x.uid === to ? { ...x, items: { ...x.items, [k]: qtyIn(x.items, k) + Number(v) } } : x))); }}>
                         <option value="">Move…</option>{pos.filter((x) => x.uid !== P.uid).map((x, j) => <option key={x.uid} value={x.uid}>PO {pos.indexOf(x) + 1} · {x.supplier || 'no supplier'}</option>)}<option value="stock">From Penrith stock (no PO)</option></select></td></tr>); })}
                   {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), ex = poExtra(P, ks), its = ex.filter((x) => x.asItem), chs2 = ex.filter((x) => !x.asItem);
                     const xrow = (x) => <tr key={'x' + x.load + x.key} className={x.asItem ? 'no-autoi' : 'no-chr'}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small></td><td>{x.qty}</td><td>{x.qty}</td>
@@ -603,7 +624,7 @@ export default function NewOrder() {
             {stockKeys.length > 0 && <div className="no-grp"><div className="no-gh" style={{ background: '#57534E' }}>From Penrith stock <small>no PO</small></div>
               <div className="no-tw"><table className="no-t"><tbody>{stockKeys.map((k) => { const l = lineOf(k); return (
                 <tr key={k}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
-                  <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; if (to === 'new') editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: { [k]: l.qty } }]); else editPos((Ps) => Ps.map((x) => (x.uid === to ? { ...x, items: { ...x.items, [k]: l.qty } } : x))); }}>
+                  <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; setStockByHand((m) => ({ ...m, [k]: false })); if (to === 'new') editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: { [k]: l.qty } }]); else editPos((Ps) => Ps.map((x) => (x.uid === to ? { ...x, items: { ...x.items, [k]: l.qty } } : x))); }}>
                     <option value="">Put on a PO…</option>{pos.map((x, j) => <option key={x.uid} value={x.uid}>PO {j + 1} · {x.supplier || 'no supplier'}</option>)}<option value="new">A new PO</option></select></td></tr>); })}</tbody></table></div></div>}
             {lines.length > 0 && <button type="button" className="btn" onClick={() => editPos((Ps) => [...Ps, { uid: key(), supplier_id: null, supplier: '', portal: '', deliverTo: 'site', notes: '', items: {} }])}>+ Add a PO</button>}
           </section>}

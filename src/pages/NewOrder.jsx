@@ -316,19 +316,22 @@ export default function NewOrder() {
       const pl = await supabase.from('order_lines').insert(lines.map((l, i) => ({ order_id: id, product_id: l.product_id, code: l.code, name: lineName(l), custom: { eps: l.eps || {}, cut: l.cut || {}, desc: l.desc || '', base: l.baseName || l.name }, unit: l.unit, qty: l.qty, price: l.price, list_price: l.list, price_reason: l.reason, from_stock: stockKeys.includes(l.key), sort: i }))).select('id');
       if (pl.error) throw pl.error;
       const lineId = Object.fromEntries(lines.map((l, i) => [l.key, pl.data[i].id]));
-      if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }); if (r.error) throw r.error; }
+      const chId = {};
+      if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }).select('id').single(); if (r.error) throw r.error; chId['|impc'] = r.data.id; }
       for (const [i, x] of loadCharges.entries()) { const L = x.L;
         const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: L.answers || {}, status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
         if (ld.error) throw ld.error;
         const its = x.inLoad.map((l) => ({ load_id: ld.data.id, line_id: lineId[l.key], qty: l.qty }));
         if (its.length) { const r = await supabase.from('order_load_items').insert(its); if (r.error) throw r.error; }
         const chs = x.ch.filter((c) => !c.off).map((c, j) => ({ order_id: id, load_id: ld.data.id, product_id: byCode.get(String(c.code).toLowerCase())?.id || null, code: c.code === 'DELIVERY' ? '' : c.code, name: c.name, unit: c.unit, qty: c.qty, price: c.price, list_price: c.list, price_reason: c.reason, is_charge: true, charge_key: c.key, sort: 100 + j }));
-        if (chs.length) { const r = await supabase.from('order_lines').insert(chs); if (r.error) throw r.error; }
+        if (chs.length) { const r = await supabase.from('order_lines').insert(chs).select('id, charge_key'); if (r.error) throw r.error; (r.data || []).forEach((row) => { chId[L.uid + '|' + row.charge_key] = row.id; }); }
       }
       for (const [i, P] of pos.entries()) {
         const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', notes: P.notes || '', send: P.send ?? null, sort: i }).select('id').single();
         if (pr.error) throw pr.error;
-        const its = Object.entries(P.items).filter(([, v]) => Number(v) > 0 && true).map(([k, v]) => ({ po_id: pr.data.id, line_id: lineId[k], qty: Number(v) })).filter((x) => x.line_id);
+        const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0);
+        const its = [...ks.map((k) => ({ po_id: pr.data.id, line_id: lineId[k], qty: Number(P.items[k]), unit_cost: unitCost(lineOf(k)) })),
+          ...poExtra(P, ks).map((x) => ({ po_id: pr.data.id, line_id: chId[x.load + '|' + x.key], qty: Number(x.qty), unit_cost: x.free ? 0 : unitCost(x) }))].filter((x) => x.line_id);
         if (its.length) { const r = await supabase.from('order_po_items').insert(its); if (r.error) throw r.error; }
       }
       setSaved(new Date()); return id;
@@ -561,12 +564,19 @@ export default function NewOrder() {
                   {cats.has('Wafflepods') && catDelivery('Wafflepods') && questions('Wafflepods', catAnswers('Wafflepods'), (ch) => setCatAns('Wafflepods', ch))}</>; })()}
                 <div className="no-poem">{P.send === false ? <span>Not sent: kept with the order only.</span> : (() => { const em = emailOf(P); return em.to ? <span>Email to <b>{em.to}</b>{em.cc ? <> · CC {em.cc}</> : null}{P.portal ? ' · ' + P.portal : ''}</span> : <span className="no-warn">No email for {P.supplier || 'this supplier'}: add it in Admin › Suppliers.</span>; })()}
                   <button type="button" className="btn" onClick={() => setPreview(poMail(P, ''))}>Preview email</button></div>
-                <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th>Move to</th></tr></thead><tbody>
+                <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Order</th><th className="r">Unit cost</th><th className="r">Cost</th><th>Move to</th></tr></thead><tbody>
                   {Object.entries(P.items).filter(([, v]) => Number(v) > 0).map(([k, v]) => { const l = lineOf(k); if (!l) return null; return (
                     <tr key={k}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td>
                       <td><input className="no-price" value={v} inputMode="decimal" onChange={(e) => editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 } } : x)))} aria-label={'Order quantity of ' + l.name} /></td>
+                      <td className="r no-cost">{unitCost(l) ? cash(unitCost(l)) : '—'}</td><td className="r"><b>{cash(r2(unitCost(l) * Number(v)))}</b></td>
                       <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, items: { ...x.items, [k]: 0 } } : to !== 'stock' && x.uid === to ? { ...x, items: { ...x.items, [k]: qtyIn(x.items, k) + Number(v) } } : x))); }}>
                         <option value="">Move…</option>{pos.filter((x) => x.uid !== P.uid).map((x, j) => <option key={x.uid} value={x.uid}>PO {pos.indexOf(x) + 1} · {x.supplier || 'no supplier'}</option>)}<option value="stock">From Penrith stock (no PO)</option></select></td></tr>); })}
+                  {(() => { const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0), ex = poExtra(P, ks), its = ex.filter((x) => x.asItem), chs2 = ex.filter((x) => !x.asItem);
+                    const xrow = (x) => <tr key={'x' + x.load + x.key} className={x.asItem ? 'no-autoi' : 'no-chr'}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small></td><td>{x.qty}</td><td>{x.qty}</td>
+                      <td className="r no-cost">{x.free ? cash(0) : unitCost(x) ? cash(unitCost(x)) : '—'}</td><td className="r"><b>{cash(x.free ? 0 : costOf(x))}</b></td><td className="no-sub">follows the order</td></tr>;
+                    const total = r2(ks.reduce((t, k) => t + unitCost(lineOf(k)) * Number(P.items[k]), 0) + ex.reduce((t, x) => t + (x.free ? 0 : costOf(x)), 0));
+                    return <>{its.map(xrow)}{chs2.length > 0 && <tr className="no-chh"><td colSpan="6">ADDITIONAL CHARGES</td></tr>}{chs2.map(xrow)}
+                      <tr className="no-pot"><td colSpan="4">PO total (cost, ex GST) · to Xero as {P.send ? 'the purchase order' : 'nothing (not sent)'}</td><td className="r"><b>{cash(total)}</b></td><td /></tr></>; })()}
                 </tbody></table></div>
               </div>))}
             {stockKeys.length > 0 && <div className="no-grp"><div className="no-gh" style={{ background: '#57534E' }}>From Penrith stock <small>no PO</small></div>

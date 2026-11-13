@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
-import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -26,38 +25,33 @@ function Section({ title, sub, children }) {
 }
 
 export default function Admin() {
-  const { staff } = useAuth();
-  const isAdmin = staff.role === 'admin';
-  const [staffN, setStaff] = useState(null);
+  const [staff, setStaff] = useState(null);
   const [products, setProducts] = useState(null);
   const [suppliers, setSuppliers] = useState(null);
   const [customers, setCustomers] = useState(null);
-  const [queued, setQueued] = useState(null);
   useEffect(() => { supabase.from('products').select('id', { count: 'exact', head: true }).eq('in_xero', true).then(({ count }) => setProducts(count ?? 0)); }, []);
   useEffect(() => { supabase.from('suppliers').select('id', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setSuppliers(count ?? 0)); }, []);
   useEffect(() => { supabase.from('customers').select('id', { count: 'exact', head: true }).eq('is_customer', true).eq('in_xero', true).then(({ count }) => setCustomers(count ?? 0)); }, []);
-  useEffect(() => { supabase.from('xero_queue').select('id', { count: 'exact', head: true }).neq('status', 'done').then(({ count }) => setQueued(count ?? 0)); }, []);
   useEffect(() => { supabase.from('staff').select('email', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setStaff(count ?? 0)); }, []);
   return (
     <>
       <PageHeader title="ADMIN" sub="Products, prices, customers and who can sign in. Changes here take effect in the portal straight away." />
       <div className="ad">
-        {isAdmin && <>
         <Section title="Products and prices" sub="What Direct sells, what each customer pays, and the suppliers it buys from.">
-          {isAdmin && <Row to="/admin/products" icon="box" title="Products and price lists" sub="Every product from Xero, with the builder, installer and retail prices" n={products} unit="products" />}
-          {isAdmin && <Row to="/admin/suppliers" icon="truck" title="Suppliers" sub="Who Direct orders from, through which portal, and the emails (To and CC)" n={suppliers} unit="suppliers" />}
+          <Row to="/admin/products" icon="box" title="Products and price lists" sub="Every product from Xero, with the builder, installer and retail prices" n={products} unit="products" />
+          <Row to="/admin/suppliers" icon="truck" title="Suppliers" sub="Who Direct orders from, through which portal, and the emails (To and CC)" n={suppliers} unit="suppliers" />
         </Section>
-        </>}
         <Section title="Customers" sub="Who Direct sells to, their account details and the notes the team keeps on them.">
           <Row to="/admin/customers" icon="building" title="Customers and notes" sub="Every Xero contact, COD or account, their price list, and the notes shown on every order" n={customers} unit="customers" />
         </Section>
-        {isAdmin && <>
         <Section title="People" sub="Who can sign in to the portal, and what each of them sees.">
-          {isAdmin && <Row to="/admin/users" icon="users" title="Users" sub="Add people, set roles, switch access on or off" n={staffN} unit="active" />}
+          <Row to="/admin/users" icon="users" title="Users" sub="Add people, set roles, switch access on or off" n={staff} unit="active" />
         </Section>
-        </>}
         <Section title="Xero" sub="Invoices and purchase orders going to Xero, and anything that failed to go.">
-          <Row to="/admin/xero" icon="sync" title="Not yet in Xero" sub="Sales orders and purchase orders waiting to go, creating, updating or deleting, with Sync now" n={queued} unit="waiting" />
+          <Row icon="sync" title="Not yet in Xero" sub="Waiting or failed, with the reason and a button to send again" soon={6} />
+        </Section>
+        <Section title="Messages" sub="The emails and texts the portal sends to customers and suppliers.">
+          <Row icon="mail" title="Messages" sub="Booking confirmations, invoices, cancellations: what is sent and when" soon={4} />
         </Section>
       </div>
     </>

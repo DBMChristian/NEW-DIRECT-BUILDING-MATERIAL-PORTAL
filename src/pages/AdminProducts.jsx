@@ -1,11 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
-import { groupsOf, sortGrouped } from '../lib/groups.js';
-import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
-import { canConnectXero } from '../lib/xeroOwner.js';
 
 /* Admin > Products and prices (13 Nov 2026): every product as Xero has it, pulled with "Sync from Xero", and Direct's own
    price lists (builder, installer, retail) beside Xero's price. Category, unit and the three prices are Direct's: typed
@@ -58,13 +55,6 @@ function TextBox({ p, field, onSaved, list }) {
   return <input className="pp-text" list={list} value={v} onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} aria-label={field + ' of ' + p.code} />;
 }
 
-/* Active: sold in the portal (New Order lists only these). A new product from Xero starts ticked. */
-function Active({ p, onSaved }) {
-  const [saving, setSaving] = useState(false);
-  const save = async (v) => { setSaving(true); const { error } = await supabase.from('products').update({ active: v, updated_at: new Date().toISOString() }).eq('id', p.id); setSaving(false); if (!error) onSaved(p.id, { active: v }); };
-  return <input type="checkbox" className={'pp-act' + (saving ? ' pp-saving' : '')} checked={!!p.active} onChange={(e) => save(e.target.checked)} aria-label={'Sell ' + p.code + ' in the portal'} title={p.active ? 'Sold: listed in New Order' : 'Not sold: hidden from New Order'} />;
-}
-
 function Pick({ p, field, options, empty, onSaved }) {
   const [saving, setSaving] = useState(false);
   const save = async (v) => { setSaving(true); const { error } = await supabase.from('products').update({ [field]: v, updated_at: new Date().toISOString() }).eq('id', p.id); setSaving(false); if (!error) onSaved(p.id, { [field]: v }); };
@@ -77,8 +67,6 @@ function Pick({ p, field, options, empty, onSaved }) {
 }
 
 export default function AdminProducts() {
-  const { staff } = useAuth();
-  const owner = canConnectXero(staff);
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
@@ -86,7 +74,6 @@ export default function AdminProducts() {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [show, setShow] = useState('active');
-  const [showOff, setShowOff] = useState(false);   /* not-active products: hidden unless ticked */
   const [n, setN] = useState(100);
   const [params, setParams] = useSearchParams();
   const [lists, setLists] = useState([]);
@@ -129,9 +116,9 @@ export default function AdminProducts() {
   const [type, setType] = useState('');
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero : !r.in_xero)) && (showOff || r.active) && (!cat || (cat === '-' ? !r.category : r.category === cat)) && (!type || r.sub_category === type)
+    return (rows || []).filter((r) => (show === 'all' || (show === 'active' ? r.in_xero && r.active : !r.in_xero)) && (!cat || (cat === '-' ? !r.category : r.category === cat)) && (!type || r.sub_category === type)
       && (!t || (r.code + ' ' + r.name + ' ' + r.description + ' ' + r.category).toLowerCase().includes(t)));
-  }, [rows, q, cat, show, type, showOff]);
+  }, [rows, q, cat, show, type]);
   const groups = useMemo(() => [...CATEGORIES, ''].map((c) => ({ key: c || '-', label: c || 'No category yet', rows: list.filter((r) => (r.category || '') === c) })).filter((g) => g.rows.length), [list]);
   const isOpen = (k) => !!q.trim() || !!open[k];
   const last = status?.last_sync;
@@ -147,8 +134,8 @@ export default function AdminProducts() {
           </div>
           {status && !status.error && (status.connected
             ? <button type="button" className="btn btn-red" onClick={sync} disabled={!!busy}><Icon name="sync" size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync from Xero'}</button>
-            : owner ? <button type="button" className="btn btn-red" onClick={connect} disabled={!!busy || status.setup === false}>{busy === 'connect' ? 'Opening Xero…' : 'Connect Xero'}</button> : <span className="pp-muted">Ask Christian to connect Xero</span>)}
-          {status?.connected && owner && <button type="button" className="link" onClick={connect} disabled={!!busy}>Reconnect</button>}
+            : <button type="button" className="btn btn-red" onClick={connect} disabled={!!busy || status.setup === false}>{busy === 'connect' ? 'Opening Xero…' : 'Connect Xero'}</button>)}
+          {status?.connected && <button type="button" className="link" onClick={connect} disabled={!!busy}>Reconnect</button>}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
         <div className="pp-filters">
@@ -156,24 +143,20 @@ export default function AdminProducts() {
           <select value={cat} onChange={(e) => { setCat(e.target.value); setN(100); }} aria-label="Category"><option value="">All categories</option><option value="-">No category yet</option>{cats.map((c) => <option key={c}>{c}</option>)}</select>
           <select value={type} onChange={(e) => { setType(e.target.value); setN(100); }} aria-label="Sub category"><option value="">Items and charges</option>{TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="active">In Xero</option><option value="gone">No longer in Xero</option><option value="all">All</option></select>
-          <label className="pp-showoff"><input type="checkbox" checked={showOff} onChange={(e) => { setShowOff(e.target.checked); setN(100); }} /> Show not active <small>{(rows || []).filter((r) => !r.active).length}</small></label>
           <button type="button" className="btn" onClick={addList}>+ Price list</button>
           <span className="pp-count">{rows === null ? 'Loading…' : list.length + ' of ' + rows.length + ' products'}</span>
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table">
-            <thead><tr><th className="pp-acth">Active</th><th>Code</th><th>Product</th><th>Category</th><th>Sub category</th><th>Unit</th><th className="r">Xero price</th><th className="r">Builder</th><th className="r">Installer</th><th className="r">Online</th>{lists.map((l) => <th key={l.id} className="r pp-lh"><span>{l.name}</span><button type="button" className="pp-lbtn" onClick={() => renameList(l)} aria-label={'Rename ' + l.name} title="Rename">✎</button><button type="button" className="pp-lbtn" onClick={() => removeList(l)} aria-label={'Remove ' + l.name} title="Remove">×</button></th>)}<th className="r">Xero cost</th></tr></thead>
+            <thead><tr><th>Code</th><th>Product</th><th>Category</th><th>Sub category</th><th>Unit</th><th className="r">Xero price</th><th className="r">Builder</th><th className="r">Installer</th><th className="r">Online</th>{lists.map((l) => <th key={l.id} className="r pp-lh"><span>{l.name}</span><button type="button" className="pp-lbtn" onClick={() => renameList(l)} aria-label={'Rename ' + l.name} title="Rename">✎</button><button type="button" className="pp-lbtn" onClick={() => removeList(l)} aria-label={'Remove ' + l.name} title="Remove">×</button></th>)}<th className="r">Xero cost</th></tr></thead>
             <tbody>
-              {rows !== null && !list.length && <tr><td colSpan={11 + lists.length} className="pp-empty">{rows.length ? 'No product matches.' : status?.connected ? 'No products yet: press Sync from Xero.' : 'No products yet: connect Xero, then Sync from Xero.'}</td></tr>}
+              {rows !== null && !list.length && <tr><td colSpan={10 + lists.length} className="pp-empty">{rows.length ? 'No product matches.' : status?.connected ? 'No products yet: press Sync from Xero.' : 'No products yet: connect Xero, then Sync from Xero.'}</td></tr>}
               {groups.map((g) => (
                 <Fragment key={g.key}>
-                  <tr className="pp-grp" style={{ '--cc': catColor(g.key === '-' ? '' : g.key) }}><td colSpan={11 + lists.length}><button type="button" onClick={() => setOpen({ ...open, [g.key]: !open[g.key] })} aria-expanded={isOpen(g.key)}><span>{isOpen(g.key) ? '▾' : '▸'}</span><i className="pp-dot-c" /> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
+                  <tr className="pp-grp" style={{ '--cc': catColor(g.key === '-' ? '' : g.key) }}><td colSpan={10 + lists.length}><button type="button" onClick={() => setOpen({ ...open, [g.key]: !open[g.key] })} aria-expanded={isOpen(g.key)}><span>{isOpen(g.key) ? '▾' : '▸'}</span><i className="pp-dot-c" /> {g.label} <small>{g.rows.length} product{g.rows.length === 1 ? '' : 's'}</small></button></td></tr>
                   {isOpen(g.key) && <>
-                {sortGrouped(g.key, g.rows).map((p, i, arr) => { const gr = groupsOf(g.key), sg = gr && gr.of(p); return (
-                <Fragment key={p.id}>
-                {gr && (i === 0 || gr.of(arr[i - 1]) !== sg) && <tr className={'pp-sub' + (sg === 'Additional charges' ? ' pp-sub-x' : '') + ' pp-sub-' + g.key.toLowerCase()}><td colSpan={11 + lists.length}><span className="pp-subn">{sg}</span> <small className="pp-subc">{arr.filter((x) => gr.of(x) === sg).length}</small></td></tr>}
-                <tr key={p.id} className={(p.in_xero ? '' : 'pp-gone') + (p.active ? '' : ' pp-off')} style={{ '--cc': catColor(p.category) }}>
-                  <td className="pp-actc"><Active p={p} onSaved={patch} /></td>
+                {g.rows.map((p) => (
+                <tr key={p.id} className={p.in_xero ? '' : 'pp-gone'} style={{ '--cc': catColor(p.category) }}>
                   <td className="pp-code">{p.code}</td>
                   <td><b>{p.name}</b>{p.description && p.description !== p.name ? <small>{p.description}</small> : null}{!p.in_xero && <small className="pp-tag">No longer in Xero</small>}</td>
                   <td><Pick p={p} field="category" options={CATEGORIES} empty="Choose…" onSaved={patch} /></td>
@@ -186,7 +169,7 @@ export default function AdminProducts() {
                   {lists.map((l) => <td key={l.id} className="r"><ListPrice p={p} list={l} value={(extra[p.id] || {})[l.id]} onSaved={patchExtra} /></td>)}
                   <td className="r pp-muted">{money(p.xero_cost_price)}</td>
                 </tr>
-                </Fragment>); })}
+                ))}
                   </>}
                 </Fragment>
               ))}

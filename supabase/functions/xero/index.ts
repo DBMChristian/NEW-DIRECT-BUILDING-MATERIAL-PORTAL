@@ -94,10 +94,10 @@ Deno.serve(async (req) => {
     const action = String(body?.action || "");
 
     if (action === "status") {
-      const { data: l } = await priv().from("xero_link").select("tenant_name, connected_by, connected_at, refresh_token").eq("id", 1).maybeSingle();
+      const { data: l } = await priv().from("xero_link").select("tenant_name, connected_by, connected_at, refresh_token, default_terms_day, default_terms_type").eq("id", 1).maybeSingle();
       const kind = body?.kind === "contacts" ? "contacts" : "items";
       const { data: last } = await admin().from("xero_sync_runs").select("*").eq("kind", kind).order("id", { ascending: false }).limit(1).maybeSingle();
-      return json({ connected: !!l?.refresh_token, tenant: l?.tenant_name || null, connected_by: l?.connected_by || null, connected_at: l?.connected_at || null, last_sync: last || null, setup: !!(env("XERO_CLIENT_ID") && env("XERO_CLIENT_SECRET") && env("XERO_REDIRECT_URI")) });
+      return json({ connected: !!l?.refresh_token, tenant: l?.tenant_name || null, default_terms: l?.default_terms_type ? { day: l.default_terms_day, type: l.default_terms_type } : null, connected_by: l?.connected_by || null, connected_at: l?.connected_at || null, last_sync: last || null, setup: !!(env("XERO_CLIENT_ID") && env("XERO_CLIENT_SECRET") && env("XERO_REDIRECT_URI")) });
     }
     if (who.role !== "admin") return json({ error: "Only an admin can do that" }, 403);
 
@@ -167,6 +167,11 @@ Deno.serve(async (req) => {
           all.push(...got);
           if (got.length < 1000) break;
         }
+        try {
+          const or = await fetch("https://api.xero.com/api.xro/2.0/Organisation", { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+          const oj = await or.json().catch(() => ({})), st = oj?.Organisations?.[0]?.PaymentTerms?.Sales;
+          await priv().from("xero_link").update({ default_terms_day: st?.Day ?? null, default_terms_type: String(st?.Type || "") }).eq("id", 1);
+        } catch { /* the contacts still sync */ }
         const phone = (c: any, t: string) => { const p = (c.Phones || []).find((x: any) => x.PhoneType === t); return p ? [p.PhoneCountryCode, p.PhoneAreaCode, p.PhoneNumber].filter(Boolean).join(" ").trim() : ""; };
         const addr = (c: any) => (c.Addresses || []).find((x: any) => x.AddressType === "STREET" && (x.AddressLine1 || x.City)) || (c.Addresses || []).find((x: any) => x.AddressLine1 || x.City) || {};
         const now = new Date().toISOString();

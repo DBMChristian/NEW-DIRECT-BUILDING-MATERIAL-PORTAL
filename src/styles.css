@@ -704,3 +704,9 @@ button.no-miss{border:1px solid #FDE68A}
 .no-flash{animation:noflash 1.6s ease-out 1;border-radius:6px}
 tr.no-flash td{background:#FEF2F2!important}
 .no-wpn{display:block;margin-top:3px;font-size:11px;color:#57534E;max-width:300px}
+
+/* everything still to fill in (13 Nov 2026) */
+.no-misslist{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto}.no-misslist>b{font-size:12px;color:#92400E}
+.no-misslist .no-miss{padding:5px 8px;font-size:12px}
+.btn.no-wait{opacity:.75}
+.no-head .no-need input,.no-head .no-need select,.no-head .no-need .no-mob,.no-head .no-need .ad-wrap input{border-color:#DC2626;background:#FEF2F2}

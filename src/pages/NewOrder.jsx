@@ -317,39 +317,45 @@ export default function NewOrder() {
   const setCharge = (x, ch) => { const parts = x.parts || [x]; setOver((O) => { const N = { ...O }; parts.forEach((p) => { const k = p.load + '|' + p.key; N[k] = { ...(N[k] || {}), ...ch }; }); return N; }); };
 
   /* ---------- what is still missing ---------- */
-  const missing = useMemo(() => {
-    if (!o.customer) return 'Choose the company.';
-    if (!o.contact_name.trim()) return 'Enter their name.';
-    if (String(o.contact_phone).replace(/\D/g, '').length !== 8) return 'Their phone: the 8 numbers after +61 4.';
-    if (!o.site_street.trim() || !o.site_suburb.trim()) return 'Enter the site address (street, then suburb and postcode).';
-    if (o.kind === 'order' && !o.delivery_date) return 'Choose the delivery date.';
-    if (o.kind === 'order' && !o.booking_time) return 'Select a booking time.';
-    if (o.sms === null) return 'SMS booking confirmation: Yes or No.';
-    if (!lines.length) return 'Add at least one product.';
-    const cm = lines.map(customMissing).find(Boolean); if (cm) return 'Build SO: ' + cm;
-    const bad = lines.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || allCharges.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
-    if (bad) return 'Build SO: give the reason for the changed price of ' + bad.name + '.';
-    for (const l of lines) { const onLoads = loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0); if (onLoads - l.qty > 1e-6) return 'Build Load: ' + l.name + ' has ' + onLoads + ' on loads but only ' + l.qty + ' sold.'; }
-    for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) return 'Build Load: load ' + L.n + ' is empty: remove it.';
-      if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
-      if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
+  /* everything still to fill in, in order: Place order waits until the list is empty (13 Nov 2026) */
+  const missingAll = useMemo(() => {
+    const out = [], add = (t) => { if (!out.includes(t)) out.push(t); };
+    if (!o.customer) add('Choose the company.');
+    if (!o.price_list) add('Choose the price list.');
+    if (!o.contact_name.trim()) add('Enter their name.');
+    if (String(o.contact_phone).replace(/\D/g, '').length !== 8) add('Their phone: the 8 numbers after +61 4.');
+    if (!o.site_street.trim() || !o.site_suburb.trim()) add('Enter the site address (street, then suburb and postcode).');
+    if (o.kind === 'order' && !o.delivery_date) add('Choose the delivery date.');
+    if (o.kind === 'order' && !o.booking_time) add('Select a booking time.');
+    if (o.sms === null) add('SMS booking confirmation: Yes or No.');
+    if (!lines.length) add('Add at least one product.');
+    lines.map(customMissing).filter(Boolean).forEach((cm) => add('Build SO: ' + cm));
+    [...lines.filter((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3), ...allCharges.filter((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3)].forEach((x) => add('Build SO: give the reason for the changed price of ' + (x.baseName || x.name) + '.'));
+    for (const l of lines) { const onLoads = loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0); if (onLoads - l.qty > 1e-6) add('Build Load: ' + l.name + ' has ' + onLoads + ' on loads but only ' + l.qty + ' sold.'); }
+    for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) add('Build Load: load ' + L.n + ' is empty: remove it.');
+      if (L.fulfil === 'delivery' && !String(L.site || '').trim()) add('Build Load: enter the site address of load ' + L.n + '.');
+      if (o.kind === 'order' && !L.date) add('Build Load: choose the day of load ' + L.n + '.'); }
     for (const L of loads) { const cs = new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category)), a = effAns(L), no = (f) => a[f] == null || String(a[f]).trim() === '';
       if (cs.has('Wafflepods') && (L.fulfil === 'delivery' || pos.some((P) => poFulfil(P) === 'delivery' && Object.keys(P.items).some((k) => Number(P.items[k]) > 0 && qtyIn(L.items, k) > 0 && lineOf(k)?.category === 'Wafflepods')))) {
-        if (no('location')) return 'Build PO: waffle pods, choose the location.';
-        if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) return 'Build PO: waffle pods, enter the driving time.';
-        if (no('scrap')) return 'Build PO: waffle pods, scrap pick-up Yes or No.';
-        if (no('trailer')) return 'Build PO: waffle pods, trailer access Yes or No.';
-        if (no('gate')) return 'Build PO: waffle pods, enter the gate code (or N/A).'; }
+        if (no('location')) add('Build PO: waffle pods, choose the location.');
+        if ((a.location === 'NSW' || a.location === 'ACT') && !(Number(a.hours) > 0)) add('Build PO: waffle pods, enter the driving time.');
+        if (no('scrap')) add('Build PO: waffle pods, scrap pick-up Yes or No.');
+        if (no('trailer')) add('Build PO: waffle pods, trailer access Yes or No.');
+        if (no('gate')) add('Build PO: waffle pods, enter the gate code (or N/A).'); }
       if (cs.has('Concrete')) {
-        for (const [f, t] of [['pour', 'the pour'], ['truck', 'the truck'], ['spacing', 'the spacing'], ['message', 'the finish']]) if (no(f)) return 'Build PO: concrete, choose ' + t + '.';
-        if (no('tester')) return 'Build PO: concrete, tester Yes or No.';
-        if (no('coloured')) return 'Build PO: concrete, coloured Yes or No.';
-        if (a.coloured === 'yes' && no('colour')) return 'Build PO: concrete, enter the colour.'; } }
-    for (const [i, P] of pos.entries()) { if (!P.supplier_id) return 'Build PO: choose the supplier of PO ' + (i + 1) + '.';
-      if (o.kind === 'order' && P.send == null) return 'Build PO: choose Send Yes or No on PO ' + (i + 1) + ' (' + P.supplier + ').';
-      if (P.send && !emailOf(P).to) return 'Build PO: ' + P.supplier + ' has no email in Admin › Suppliers.'; }
-    return '';
+        for (const [f, t] of [['pour', 'the pour'], ['truck', 'the truck'], ['spacing', 'the spacing'], ['message', 'the finish']]) if (no(f)) add('Build PO: concrete, choose ' + t + '.');
+        if (no('tester')) add('Build PO: concrete, tester Yes or No.');
+        if (no('coloured')) add('Build PO: concrete, coloured Yes or No.');
+        if (a.coloured === 'yes' && no('colour')) add('Build PO: concrete, enter the colour.'); } }
+    for (const [i, P] of pos.entries()) { if (!P.supplier_id) add('Build PO: choose the supplier of PO ' + (i + 1) + '.');
+      if (o.kind === 'order' && P.send == null) add('Build PO: choose Send Yes or No on PO ' + (i + 1) + ' (' + P.supplier + ').');
+      if (P.send && !emailOf(P).to) add('Build PO: ' + P.supplier + ' has no email in Admin › Suppliers.'); }
+    return out;
   }, [o, lines, loads, pos, allCharges]);
+  const missing = missingAll[0] || '';
+  const HEAD_IDS = [['go-company', /company/i], ['go-pricelist', /price list/i], ['go-name', /their name/i], ['go-phone', /phone/i], ['go-site', /^enter the site address/i], ['go-date', /delivery date/i], ['go-time', /booking time/i], ['go-sms', /sms/i]];
+  const [tried, setTried] = useState(false);   /* after a first Place order, every missing box is outlined */
+  const needCls = (id) => (tried && missingAll.some((t) => { const h = HEAD_IDS.find((x) => x[0] === id); return h && !/^Build/.test(t) && h[1].test(t); }) ? ' no-need' : '');
 
   /* ---------- the draft: saved as you go ---------- */
   const busyRef = useRef(false);
@@ -392,7 +398,8 @@ export default function NewOrder() {
   useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o, posSend, posFulfil,  lines, loadsHand, loadInfo, posHand, over]);
 
   const place = async () => {
-    if (missing) { setMsg({ bad: true, text: 'Not ready: ' + missing }); return; }
+    setTried(true);
+    if (missingAll.length) { setMsg({ bad: true, text: 'Not placed: ' + missingAll.length + ' thing' + (missingAll.length === 1 ? '' : 's') + ' still to fill in (listed below).' }); goTo(missingAll[0]); return; }
     setBusy(true); setMsg(null);
     const id = await save();
     const { data, error } = await supabase.rpc('place_order', { p_id: id });
@@ -532,6 +539,7 @@ export default function NewOrder() {
       const code = n(/no price for (\S+)/i); const l = lines.find((x) => t.includes(lineName(x)) || t.includes(x.baseName || x.name));
       id = code ? 'go-ch-' + code.replace(/[^A-Za-z0-9]/g, '') : l ? 'go-line-' + l.key : 'go-lines'; if (l) setFolded((f) => ({ ...f, [l.category]: false })); }
     else if (/company/i.test(t)) id = 'go-company';
+    else if (/price list/i.test(t)) id = 'go-pricelist';
     else if (/their name/i.test(t)) id = 'go-name';
     else if (/phone/i.test(t)) id = 'go-phone';
     else if (/site address/i.test(t)) id = 'go-site';
@@ -573,7 +581,7 @@ export default function NewOrder() {
                 <div key={d.id} className="no-dr"><button type="button" onClick={() => openDraft(d.id)}><b>DRAFT-{d.id}</b> {d.customer_name || 'No company yet'}<small>{cash(d.total)} · {d.created_by_name} · {new Date(d.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></button><button type="button" className="no-x" aria-label={'Delete DRAFT-' + d.id} onClick={() => dropDraft(d.id)}>×</button></div>))}</div>}
             </div>
             <div className="no-hd">
-              <div className="no-f no-c1" id="go-company">Company <span className="req">*</span>
+              <div className={'no-f no-c1' + needCls('go-company')} id="go-company">Company <span className="req">*</span>
                 {!o.customer ? <div className="no-cwrap"><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" aria-label="Company" autoFocus />
                   {cHits.length > 0 && <div className="no-pop">{cHits.map((c) => <button key={c.id} type="button" onClick={() => pickCustomer(c)}><b>{c.name}</b><small>{[c.email, c.mobile || c.phone].filter(Boolean).join(' · ')} · {c.terms === 'account' ? 'Account' : 'COD'}{c.on_hold ? ' · ON HOLD' : ''}</small></button>)}</div>}</div>
                   : <div className="no-cust"><b>{o.customer.name}</b><button type="button" className="link" onClick={() => { setO({ ...o, customer: null }); setNotes([]); }}>Change</button></div>}
@@ -581,19 +589,19 @@ export default function NewOrder() {
               </div>
               <div className="no-f">COD or ACC <span className="req">*</span><Seg value={o.terms} set={(v) => setO({ ...o, terms: v })} options={[['cod', 'COD'], ['account', 'ACC']]} /></div>
               <div className="no-f">Order or quote <span className="req">*</span><Seg value={o.kind} set={(v) => setO({ ...o, kind: v })} options={[['order', 'Order'], ['quote', 'Quote']]} /></div>
-              <label className="no-f">Price list <span className="req">*</span><select value={o.price_list} onChange={(e) => { const pl = e.target.value; setO({ ...o, price_list: pl }); setLines((ls) => ls.map((l) => { const p = products.find((x) => x.id === l.product_id); const np = priceFor(p, pl); return { ...l, list: np, price: l.price === l.list ? np : l.price }; })); }}>
+              <label className={'no-f' + needCls('go-pricelist')} id="go-pricelist">Price list <span className="req">*</span><select value={o.price_list} onChange={(e) => { const pl = e.target.value; setO({ ...o, price_list: pl }); setLines((ls) => ls.map((l) => { const p = products.find((x) => x.id === l.product_id); const np = priceFor(p, pl); return { ...l, list: np, price: l.price === l.list ? np : l.price }; })); }}>
                 <option value="">Choose a price list…</option><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{priceLists.map((pl) => <option key={pl.id} value={'list:' + pl.id}>{pl.name}</option>)}</select></label>
               <div className="no-f">Their PO <i className="no-opt">(optional)</i><input value={o.their_po} onChange={(e) => setO({ ...o, their_po: e.target.value })} placeholder="PO / ref" aria-label="Their PO" />
                 <label className="btn no-plans">{uploading ? 'Uploading…' : 'Plans or drawings' + (o.plans.length ? ' (' + o.plans.length + ')' : '')}<input type="file" multiple accept=".pdf,image/*,.dwg,.dxf" onChange={(e) => uploadPlans(e.target.files)} hidden /></label></div>
 
-              <label className="no-f" id="go-name">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} placeholder="Who is this order for?" /></label>
-              <label className="no-f" id="go-phone">Their phone <span className="req">*</span><span className="no-mob"><b>AU +61 4</b><input value={fmt8(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: digits8(e.target.value), mobile: true })} inputMode="tel" placeholder="12 345 678" aria-label="Their mobile, after +61 4" /></span></label>
-              <div className="no-f" id="go-site">Site address <span className="req">*</span><span className="no-two"><AddressInput value={o.site_street} onChange={(v) => setO((x) => ({ ...x, site_street: v }))} onPick={(r) => setO((x) => ({ ...x, site_street: r.street, site_suburb: r.suburb || x.site_suburb }))} placeholder="14 Banks Rd" ariaLabel="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
+              <label className={'no-f' + needCls('go-name')} id="go-name">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} placeholder="Who is this order for?" /></label>
+              <label className={'no-f' + needCls('go-phone')} id="go-phone">Their phone <span className="req">*</span><span className="no-mob"><b>AU +61 4</b><input value={fmt8(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: digits8(e.target.value), mobile: true })} inputMode="tel" placeholder="12 345 678" aria-label="Their mobile, after +61 4" /></span></label>
+              <div className={'no-f' + needCls('go-site')} id="go-site">Site address <span className="req">*</span><span className="no-two"><AddressInput value={o.site_street} onChange={(v) => setO((x) => ({ ...x, site_street: v }))} onPick={(r) => setO((x) => ({ ...x, site_street: r.street, site_suburb: r.suburb || x.site_suburb }))} placeholder="14 Banks Rd" ariaLabel="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
               <label className="no-f">Email for the invoice<input type="email" value={o.email} onChange={(e) => setO({ ...o, email: e.target.value })} placeholder="Email for this order" /></label>
               <label className="no-f">Notes<input value={o.instructions} onChange={(e) => setO({ ...o, instructions: e.target.value })} placeholder="Special instructions…" /></label>
 
-              <label className="no-f" id="go-date">Delivery date {o.kind === 'order' && <span className="req">*</span>}<input type="date" value={o.delivery_date} onChange={(e) => setO({ ...o, delivery_date: e.target.value })} /></label>
-              <label className="no-f" id="go-time">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
+              <label className={'no-f' + needCls('go-date')} id="go-date">Delivery date {o.kind === 'order' && <span className="req">*</span>}<input type="date" value={o.delivery_date} onChange={(e) => setO({ ...o, delivery_date: e.target.value })} /></label>
+              <label className={'no-f' + needCls('go-time')} id="go-time">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
               {<div id="go-sms" className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>}
             </div>
             {o.customer && <div className="no-chips">
@@ -784,10 +792,11 @@ export default function NewOrder() {
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}
             {o.kind === 'order' && <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => setO({ ...o, upload_xero: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} />
               <small>{o.upload_xero === false ? 'Nothing goes to Xero.' : 'On placing: the sales order' + (pos.length ? ' and ' + pos.length + ' purchase order' + (pos.length === 1 ? '' : 's') : '') + ' in Xero.'}</small></div>}
-            {msg && (msg.bad ? <button type="button" className="msg bad no-go" onClick={() => goTo(msg.text)} title="Go there">{msg.text} <i>→</i></button> : <p className="msg" role="status">{msg.text}</p>)}
-            {missing && !msg && <button type="button" className="no-miss no-go" onClick={() => goTo(missing)} title="Go there">{missing} <i>→</i></button>}
+            {msg && (msg.bad && !/^Not placed:/.test(msg.text) ? <button type="button" className="msg bad no-go" onClick={() => goTo(msg.text)} title="Go there">{msg.text} <i>→</i></button> : <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>)}
+            {missingAll.length > 0 && <div className="no-misslist"><b>Still to fill in ({missingAll.length})</b>
+              {missingAll.map((t) => <button type="button" key={t} className="no-miss no-go" onClick={() => goTo(t)} title="Go there">{t} <i>→</i></button>)}</div>}
             {[...new Set(allCharges.filter((x) => !x.off && x.note && !/location|driving time/i.test(x.note)).map((x) => x.note))].map((t) => <button type="button" key={t} className="no-warnbox no-go" onClick={() => goTo(t)} title="Go there">Warning: {t} <i>→</i></button>)}
-            <button type="button" className="btn btn-red btn-big" disabled={busy} onClick={place}>{busy ? 'Placing…' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>
+            <button type="button" className={'btn btn-red btn-big' + (missingAll.length ? ' no-wait' : '')} disabled={busy} onClick={place} title={missingAll.length ? 'Fill in the ' + missingAll.length + ' item(s) listed above first' : ''}>{busy ? 'Placing…' : missingAll.length ? (o.kind === 'quote' ? 'Save quote' : 'Place order') + ' · ' + missingAll.length + ' to fill in' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>
             <div className="no-row"><button type="button" className="btn" onClick={async () => { await save(); setMsg({ text: 'Draft saved.' }); }}>Save draft</button><button type="button" className="btn" onClick={() => { if (window.confirm('Clear the form? The draft stays saved.')) restart(); }}>Clear</button></div>
           </section>
         </aside>

@@ -61,7 +61,10 @@ export default function NewOrder() {
   const [cat, setCat] = useState(''); const [q, setQ] = useState(''); const [all, setAll] = useState(false);
   const [saved, setSaved] = useState(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(null); const [done, setDone] = useState(null);
 
-  useEffect(() => { (async () => {
+  /* the products, prices, suppliers and price lists: loaded now, and again whenever they change in Admin (straight
+     away through the database's live updates, and on coming back to this tab), so New Order follows Products (13 Nov 2026) */
+  const loadRef = useRef(null);
+  useEffect(() => { const loadAll = async () => {
     const ps = []; let f = 0;
     for (;;) { const { data } = await supabase.from('products').select('id, code, name, unit, category, sub_category, xero_sales_price, xero_cost_price, price_builder, price_installer, price_online, in_xero, active').range(f, f + 999); ps.push(...(data || [])); if (!data || data.length < 1000) break; f += 1000; }
     setProducts(ps);
@@ -71,7 +74,27 @@ export default function NewOrder() {
     const rt = await supabase.from('supplier_routes').select('portal, categories, supplier_id, supplier:suppliers(id, name, active)'); setRoutes(rt.data || []);
     const pls = await supabase.from('price_lists').select('id, name').order('sort'); setPriceLists(pls.data || []);
     const sp = await supabase.from('suppliers').select('id, name, active').eq('active', true).order('name'); setSuppliers(sp.data || []);
-  })(); }, []);
+  };
+  loadRef.current = loadAll; loadAll();
+  let t = null; const soon = () => { clearTimeout(t); t = setTimeout(loadAll, 600); };
+  const ch = supabase.channel('new-order-catalogue');
+  ['products', 'product_prices', 'price_lists', 'suppliers', 'supplier_routes'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, soon));
+  ch.subscribe();
+  const vis = () => { if (document.visibilityState === 'visible') soon(); };
+  document.addEventListener('visibilitychange', vis);
+  return () => { clearTimeout(t); supabase.removeChannel(ch); document.removeEventListener('visibilitychange', vis); };
+  }, []);
+
+  /* the lines on the order follow their product: its category (so its material and charges), its unit, and its price
+     list price (a price not typed over follows it; one typed over keeps its own, with its reason) */
+  useEffect(() => {
+    if (!products.length) return;
+    setLines((ls) => { let changed = false; const out = ls.map((l) => { const p = products.find((x) => x.id === l.product_id); if (!p) return l;
+      const np = priceFor(p), cat = p.category || 'Others', typed = Math.abs(l.price - l.list) >= 0.005;
+      const nx = { ...l, category: cat, unit: p.unit || l.unit, list: np, price: typed ? l.price : np, baseName: l.baseName || p.name };
+      if (nx.category !== l.category || nx.unit !== l.unit || nx.list !== l.list || nx.price !== l.price) { changed = true; return nx; } return l; });
+      return changed ? out : ls; });
+  }, [products, extraPrices]);
 
   const priceFor = (p, pl = o.price_list || o.customer?.price_list || 'builder') => {
     if (!p) return 0;

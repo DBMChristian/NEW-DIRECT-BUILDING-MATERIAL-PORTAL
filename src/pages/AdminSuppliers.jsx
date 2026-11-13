@@ -1,32 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
 
-/* Admin > Suppliers (13 Nov 2026): each supplier, and for each of its portals the materials ordered through it and the
-   emails a purchase order goes To and is copied to (CC). Every material should be ordered from exactly one place: the
-   page says when one has none or more than one. */
-const CATEGORIES = ['Concrete', 'Wafflepods', 'Rediwall', 'Reinforcement', 'Hebel', 'Bricks', 'NRG', 'Bluedeck', 'Others'];
-const CAT_COLOR = { Concrete: '#CA8A04', Wafflepods: '#7C3AED', Rediwall: '#EA580C', Reinforcement: '#92400E', Hebel: '#2563EB', Bricks: '#B91C1C', NRG: '#16A34A', Bluedeck: '#0891B2', Others: '#78716C' };
+/* Admin > Suppliers (13 Nov 2026): each supplier, its portals, and the emails a purchase order goes To and is copied to (CC). */
 const PORTALS = ['OrderConcrete', 'OrderSteel', 'OrderPods'];
 const emails = (t) => String(t || '').split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
 const okEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 function Route({ r, onSaved, onRemove }) {
-  const [f, setF] = useState({ portal: r.portal, categories: r.categories || [], to: (r.email_to || []).join(', '), cc: (r.email_cc || []).join(', ') });
+  const [f, setF] = useState({ portal: r.portal, to: (r.email_to || []).join(', '), cc: (r.email_cc || []).join(', ') });
   const [state, setState] = useState('');
-  const dirty = f.portal !== r.portal || f.categories.join() !== (r.categories || []).join() || emails(f.to).join() !== (r.email_to || []).join() || emails(f.cc).join() !== (r.email_cc || []).join();
+  const dirty = f.portal !== r.portal || emails(f.to).join() !== (r.email_to || []).join() || emails(f.cc).join() !== (r.email_cc || []).join();
   const bad = [...emails(f.to), ...emails(f.cc)].filter((e) => !okEmail(e));
   const save = async () => {
     if (bad.length) { setState('Not an email: ' + bad.join(', ')); return; }
     if (!emails(f.to).length) { setState('Add at least one To email.'); return; }
     setState('Saving…');
-    const row = { portal: f.portal, categories: CATEGORIES.filter((c) => f.categories.includes(c)), email_to: emails(f.to), email_cc: emails(f.cc), updated_at: new Date().toISOString() };
+    const row = { portal: f.portal, email_to: emails(f.to), email_cc: emails(f.cc), updated_at: new Date().toISOString() };
     const { error } = await supabase.from('supplier_routes').update(row).eq('id', r.id);
     if (error) setState(error.message); else { setState('Saved'); onSaved(r.id, row); setTimeout(() => setState(''), 1500); }
   };
-  const toggle = (c) => setF({ ...f, categories: f.categories.includes(c) ? f.categories.filter((x) => x !== c) : [...f.categories, c] });
   return (
     <div className="sp-route">
       <div className="sp-r-head">
@@ -38,12 +33,6 @@ function Route({ r, onSaved, onRemove }) {
           <button type="button" className="btn btn-red" disabled={!dirty} onClick={save}>Save</button>
           <button type="button" className="link" onClick={() => onRemove(r)}>Remove</button>
         </div>
-      </div>
-      <div className="sp-field"><span>Materials</span>
-        <div className="sp-cats">{CATEGORIES.map((c) => (
-          <label key={c} className={'sp-cat' + (f.categories.includes(c) ? ' on' : '')} style={{ '--cc': CAT_COLOR[c] }}>
-            <input type="checkbox" checked={f.categories.includes(c)} onChange={() => toggle(c)} /><i />{c}
-          </label>))}</div>
       </div>
       <label className="sp-field"><span>Email to</span><input value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} placeholder="orders@supplier.com.au (several: separate with commas)" /></label>
       <label className="sp-field"><span>CC</span><input value={f.cc} onChange={(e) => setF({ ...f, cc: e.target.value })} placeholder="Copies (optional), separated with commas" /></label>
@@ -62,12 +51,6 @@ export default function AdminSuppliers() {
   };
   useEffect(() => { load(); }, []);
 
-  /* every material ordered from exactly one place */
-  const cover = useMemo(() => {
-    const live = routes.filter((r) => r.active && (sup || []).find((s) => s.id === r.supplier_id)?.active);
-    return CATEGORIES.map((c) => ({ c, n: live.filter((r) => (r.categories || []).includes(c)).length }));
-  }, [routes, sup]);
-
   const addSupplier = async () => {
     const name = (window.prompt('Supplier name:') || '').trim(); if (!name) return;
     const { error } = await supabase.from('suppliers').insert({ name });
@@ -81,11 +64,8 @@ export default function AdminSuppliers() {
 
   return (
     <>
-      <PageHeader title="SUPPLIERS" sub="Who Direct orders from, through which portal, for which materials, and where each purchase order is emailed." back={<Link to="/admin" className="page-back"><Icon name="back" size={14} /> Admin</Link>} />
+      <PageHeader title="SUPPLIERS" sub="Who Direct orders from, through which portal, and where each purchase order is emailed." back={<Link to="/admin" className="page-back"><Icon name="back" size={14} /> Admin</Link>} />
       <div className="ad">
-        <section className="sp-cover" aria-label="Where each material is ordered">
-          {cover.map(({ c, n }) => <span key={c} className={'sp-cv' + (n === 1 ? '' : ' warn')} style={{ '--cc': CAT_COLOR[c] }} title={n === 1 ? 'Ordered from one place' : n === 0 ? 'Not ordered from anywhere yet' : 'Ordered from ' + n + ' places'}><i />{c}{n !== 1 && <b>{n === 0 ? ' · none' : ' · ' + n + ' places'}</b>}</span>)}
-        </section>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
         {sup === null ? <div className="empty">Loading…</div> : sup.map((s) => (
           <section key={s.id} className={'ad-sec' + (s.active ? '' : ' sp-off')}>

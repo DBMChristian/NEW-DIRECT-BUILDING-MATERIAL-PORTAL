@@ -20,6 +20,16 @@ async function xero(action, extra = {}) {
   return data;
 }
 
+/* the credit limit: typed, saved when you leave the box; empty = no limit */
+function Limit({ c, canEdit, onSave }) {
+  const [v, setV] = useState(c.credit_limit ?? '');
+  useEffect(() => { setV(c.credit_limit ?? ''); }, [c.credit_limit]);
+  const save = () => { const n = String(v).trim() === '' ? null : Number(String(v).replace(/[^0-9.]/g, ''));
+    if (n !== null && !Number.isFinite(n)) { setV(c.credit_limit ?? ''); return; }
+    if (n === (c.credit_limit == null ? null : Number(c.credit_limit))) return; onSave(c, { credit_limit: n }); };
+  return <span className="cu-lim"><i>$</i><input inputMode="decimal" value={v} disabled={!canEdit} placeholder="No limit" onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} aria-label={'Credit limit of ' + c.name} /></span>;
+}
+
 function Notes({ c, notes, me, onChange }) {
   const [text, setText] = useState('');
   const [edit, setEdit] = useState(null);
@@ -111,9 +121,9 @@ export default function AdminCustomers() {
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table cu-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>Credit limit</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
             <tbody>
-              {rows !== null && !list.length && <tr><td colSpan="7" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
+              {rows !== null && !list.length && <tr><td colSpan="8" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((c) => {
                 const cn = notes[c.id] || [];
                 return (
@@ -123,11 +133,12 @@ export default function AdminCustomers() {
                       <td><small className="cu-c">{c.email}</small><small className="cu-c">{c.mobile || c.phone}</small></td>
                       <td>{c.suburb}</td>
                       <td><select className="pp-pick" value={c.terms} disabled={!canEdit} onChange={(e) => setField(c, { terms: e.target.value })} aria-label={'Terms of ' + c.name}><option value="cod">COD</option><option value="account">Account</option></select></td>
+                      <td><Limit c={c} canEdit={canEdit} onSave={setField} /></td>
                       <td className="cu-terms">{termsText(c) || <span className="pp-muted">Xero's default</span>}</td>
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>
                     </tr>
-                    {open === c.id && <tr className="cu-open"><td colSpan="7"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
+                    {open === c.id && <tr className="cu-open"><td colSpan="8"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
                   </Fragment>
                 );
               })}

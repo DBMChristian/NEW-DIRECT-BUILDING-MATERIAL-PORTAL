@@ -133,8 +133,10 @@ export default function NewOrder() {
     if (posHand) return posHand.map((P) => ({ ...P, items: Object.fromEntries(Object.entries(P.items).filter(([k]) => lines.some((l) => l.key === k))) }));
     const out = [];
     lines.forEach((l) => { const rt = routeOf(l.category); if (!rt) return;
-      let P = out.find((x) => x.supplier_id === rt.supplier_id && x.portal === (rt.portal || ''));
-      if (!P) { P = { uid: 'auto-' + rt.supplier_id + '-' + rt.portal, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', send: (posSend['auto-' + rt.supplier_id + '-' + rt.portal] ?? null), items: {} }; out.push(P); }
+      /* OrderSteel takes one material per order (Rediwall, Hebel, BlueDeck, reinforcement…): one PO per material there */
+      const pc = (rt.portal || '') === 'OrderSteel' ? l.category : '', uid = 'auto-' + rt.supplier_id + '-' + rt.portal + (pc ? '-' + pc : '');
+      let P = out.find((x) => x.uid === uid);
+      if (!P) { P = { uid, supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', cat: pc, deliverTo: 'site', notes: '', send: (posSend[uid] ?? null), items: {} }; out.push(P); }
       P.items[l.key] = l.qty; });
     return out;
   }, [posHand, lines, routes, posSend]);
@@ -145,18 +147,20 @@ export default function NewOrder() {
      concrete, OrderPods waffle pods, OrderSteel the rest), or on no PO at all though its material has a supplier, goes
      onto its supplier's PO (made when missing). Products put on Penrith stock by hand stay there. */
   const [stockByHand, setStockByHand] = useState({});
+  const poCat = (P) => P.cat || (lines.find((l) => Number(P.items[l.key] || 0) > 0) || {}).category || '';
   const portalTakes = (portal, cat) => (portal === 'OrderConcrete' ? cat === 'Concrete' : portal === 'OrderPods' ? cat === 'Wafflepods' : portal === 'OrderSteel' ? cat !== 'Concrete' && cat !== 'Wafflepods' : true);
   useEffect(() => {
     if (!posHand || !routes.length) return;
     let Ps = posHand.map((P) => ({ ...P, items: { ...P.items } })), changed = false;
     for (const l of lines) {
       const rt = routeOf(l.category); if (!rt) continue;
-      const on = Ps.filter((P) => Number(P.items[l.key] || 0) > 0), wrong = on.filter((P) => !portalTakes(P.portal, l.category));
+      const on = Ps.filter((P) => Number(P.items[l.key] || 0) > 0), wrong = on.filter((P) => !portalTakes(P.portal, l.category) || (P.portal === 'OrderSteel' && poCat(P, Ps) !== l.category));
       if ((on.length && !wrong.length) || (!on.length && stockByHand[l.key])) continue;
       const q = on.length ? wrong.reduce((t, P) => t + Number(P.items[l.key] || 0), 0) : Number(l.qty) || 0;
       wrong.forEach((P) => { P.items[l.key] = 0; });
-      let T = Ps.find((P) => String(P.supplier_id) === String(rt.supplier_id) && (P.portal || '') === (rt.portal || ''));
-      if (!T) { T = { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', send: null, items: {} }; Ps.push(T); }
+      const pc = (rt.portal || '') === 'OrderSteel' ? l.category : '';
+      let T = Ps.find((P) => String(P.supplier_id) === String(rt.supplier_id) && (P.portal || '') === (rt.portal || '') && (!pc || poCat(P, Ps) === pc));
+      if (!T) { T = { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', cat: pc, deliverTo: 'site', notes: '', send: null, items: {} }; Ps.push(T); }
       T.items[l.key] = Number(T.items[l.key] || 0) + q; changed = true;
     }
     Ps = Ps.filter((P) => Object.values(P.items).some((v) => Number(v) > 0) || !P.supplier_id || P.portal === '' );
@@ -240,8 +244,8 @@ export default function NewOrder() {
     /* arranged loads and POs: a new product goes on the first load of its material (else the first), and its supplier's PO */
     if (loadsHand) setLoadsHand((Ls) => { if (!Ls.length) return [{ ...blankLoad(1), items: { [k0]: 1 } }]; const i = Math.max(0, Ls.findIndex((L) => Object.keys(L.items).some((k) => lines.find((l) => l.key === k)?.category === c)));
       return Ls.map((L, j) => (j === i ? { ...L, items: { ...L.items, [k0]: 1 } } : L)); });
-    if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id && (P.portal || '') === (rt.portal || ''));   /* its supplier AND its portal (13 Nov 2026) */ if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
-      return [...Ps, { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', deliverTo: 'site', notes: '', items: { [k0]: 1 } }]; }); }
+    if (posHand) { const rt = routeOf(c); if (rt) setPosHand((Ps) => { const pc = (rt.portal || '') === 'OrderSteel' ? c : '', i = Ps.findIndex((P) => P.supplier_id === rt.supplier_id && (P.portal || '') === (rt.portal || '') && (!pc || poCat(P) === pc));   /* its supplier, its portal and (OrderSteel) its material */ if (i >= 0) return Ps.map((P, j) => (j === i ? { ...P, items: { ...P.items, [k0]: 1 } } : P));
+      return [...Ps, { uid: key(), supplier_id: rt.supplier_id, supplier: rt.supplier?.name || '', portal: rt.portal || '', cat: pc, deliverTo: 'site', notes: '', items: { [k0]: 1 } }]; }); }
   };
   /* cost from Xero (the product's purchase price), and the profit on it */
   const prodById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -411,7 +415,7 @@ export default function NewOrder() {
     setLines(L2);
     setLoadsHand((lds.data || []).map((L, i) => ({ uid: key(), n: i + 1, fulfil: L.fulfil, site: L.site_address || site, date: L.want_date || '', time: L.want_time || 'Any time', answers: L.answers || {},
       items: Object.fromEntries((lis.data || []).filter((x) => x.load_id === L.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
-    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, deliverTo: P.deliver_to, notes: P.notes, send: P.send,
+    setPosHand((ps.data || []).map((P) => ({ uid: key(), supplier_id: P.supplier_id, supplier: P.supplier_name, portal: P.portal, cat: '', deliverTo: P.deliver_to, notes: P.notes, send: P.send,
       items: Object.fromEntries((pis.data || []).filter((x) => x.po_id === P.id && k[x.line_id]).map((x) => [k[x.line_id], Number(x.qty)])) })));
     setOver({}); setLoadInfo({}); setTab('so');
     if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
@@ -590,7 +594,7 @@ export default function NewOrder() {
             {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
             {pos.map((P, i) => (
               <div key={P.uid} className="no-grp">
-                <div className="no-gh no-ghb" style={{ background: '#1E1A17' }}><button type="button" className="no-fold" aria-expanded={!foldedPo[P.uid]} aria-label={(foldedPo[P.uid] ? 'Expand ' : 'Minimise ') + 'PO ' + (i + 1)} onClick={() => setFoldedPo((f) => ({ ...f, [P.uid]: !f[P.uid] }))}>{foldedPo[P.uid] ? '▸' : '▾'}</button>PO {i + 1} <small>{P.supplier || 'No supplier yet'}{P.portal ? ' · ' + P.portal : ''}{foldedPo[P.uid] ? ' · ' + Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length + ' product' + (Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length === 1 ? '' : 's') + ' · Send ' + (P.send == null ? 'not chosen' : P.send ? 'Yes' : 'No') : ''}</small>{posHand && <button type="button" className="no-ghx" onClick={() => editPos((Ps) => Ps.filter((x) => x.uid !== P.uid))}>Remove PO</button>}</div>
+                <div className="no-gh no-ghb" style={{ background: '#1E1A17' }}><button type="button" className="no-fold" aria-expanded={!foldedPo[P.uid]} aria-label={(foldedPo[P.uid] ? 'Expand ' : 'Minimise ') + 'PO ' + (i + 1)} onClick={() => setFoldedPo((f) => ({ ...f, [P.uid]: !f[P.uid] }))}>{foldedPo[P.uid] ? '▸' : '▾'}</button>PO {i + 1} <small>{P.supplier || 'No supplier yet'}{P.portal ? ' · ' + P.portal : ''}{P.portal === 'OrderSteel' && poCat(P) ? ' · ' + poCat(P) : ''}{foldedPo[P.uid] ? ' · ' + Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length + ' product' + (Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length === 1 ? '' : 's') + ' · Send ' + (P.send == null ? 'not chosen' : P.send ? 'Yes' : 'No') : ''}</small>{posHand && <button type="button" className="no-ghx" onClick={() => editPos((Ps) => Ps.filter((x) => x.uid !== P.uid))}>Remove PO</button>}</div>
                 {!foldedPo[P.uid] && <>
                 <div className="no-load">
                   <label className="no-f">Supplier<select value={P.supplier_id || ''} onChange={(e) => { const sp = suppliers.find((x) => String(x.id) === e.target.value); const rt = routes.find((r) => String(r.supplier_id) === e.target.value); editPos((Ps) => Ps.map((x, j) => (j === i ? { ...x, supplier_id: sp?.id || null, supplier: sp?.name || '', portal: rt?.portal || '' } : x))); }}><option value="">Choose…</option>{suppliers.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></label>

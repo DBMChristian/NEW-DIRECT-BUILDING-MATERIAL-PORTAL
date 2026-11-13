@@ -7,6 +7,7 @@ import Home from './pages/Home.jsx';
 import Coming from './pages/Coming.jsx';
 import Admin from './pages/Admin.jsx';
 import AdminUsers from './pages/AdminUsers.jsx';
+import AdminProducts from './pages/AdminProducts.jsx';
 
 export default function App() {
   const { session, staff, loading, signOut } = useAuth();
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="services" element={<Coming title="Services" sub="Installation and delivery" />} />
         <Route path="admin" element={staff.role === 'admin' ? <Admin /> : <Navigate to="/" replace />} />
         <Route path="admin/users" element={staff.role === 'admin' ? <AdminUsers /> : <Navigate to="/" replace />} />
+        <Route path="admin/products" element={staff.role === 'admin' ? <AdminProducts /> : <Navigate to="/" replace />} />
         <Route path="notifications" element={<Coming title="Notifications" sub="What needs you" />} />
         <Route path="reminders" element={<Coming title="Reminders" sub="What you need to do" />} />
         <Route path="request" element={<Coming title="New request" sub="Report a problem or ask for a change" />} />

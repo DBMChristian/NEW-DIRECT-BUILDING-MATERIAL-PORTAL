@@ -26,14 +26,15 @@ function Section({ title, sub, children }) {
 
 export default function Admin() {
   const [staff, setStaff] = useState(null);
+  const [products, setProducts] = useState(null);
+  useEffect(() => { supabase.from('products').select('id', { count: 'exact', head: true }).eq('in_xero', true).then(({ count }) => setProducts(count ?? 0)); }, []);
   useEffect(() => { supabase.from('staff').select('email', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setStaff(count ?? 0)); }, []);
   return (
     <>
       <PageHeader title="ADMIN" sub="Products, prices, customers and who can sign in. Changes here take effect in the portal straight away." />
       <div className="ad">
         <Section title="Products and prices" sub="What Direct sells, what each customer pays, and the suppliers it buys from.">
-          <Row icon="box" title="Products" sub="Names, codes, units and categories" soon={7} />
-          <Row icon="dollar" title="Price lists" sub="Builder, installer and retail prices, and special prices per customer" soon={7} />
+          <Row to="/admin/products" icon="box" title="Products and price lists" sub="Every product from Xero, with the builder, installer and retail prices" n={products} unit="products" />
           <Row icon="truck" title="Suppliers" sub="DBM's portals and other suppliers, and where each is ordered from" soon={7} />
         </Section>
         <Section title="Customers" sub="Who Direct sells to, their account details and the notes the team keeps on them.">

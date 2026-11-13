@@ -638,6 +638,7 @@ export default function NewOrder() {
             <div className="no-prevmail" dangerouslySetInnerHTML={{ __html: preview.html }} /></div></div>}
         <aside className="no-side" aria-label="The order">
           <section className="no-card">
+            <div className="no-sidehd">{o.kind === 'quote' ? 'QUOTE' : 'ORDER'}</div>
             {/* every line, by material: its items, then its additional charges */}
             {soCats.length > 0 && <div className="no-sumlist">{soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c && !x.off); return (
               <div key={c} className="no-sg">

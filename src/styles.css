@@ -422,3 +422,6 @@ a.ad-row:hover{background:#FAFAF9}
 .hm-cal-d:hover{background:#F5F5F4}.hm-cal-d.now{outline:1.5px solid var(--red);outline-offset:-2px;font-weight:700}
 .hm-cal-d.on{background:var(--ink);color:#fff;font-weight:700}
 .hm-cal-f{display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid #F0EEEA}
+/* the arrows' 40 px width was also hitting the date button (it is a button now): only the arrows are 40 px */
+.hm-date>button.hm-dpick{width:auto;min-width:150px;justify-content:center;padding:0 14px;font-size:13.5px;font-weight:700}
+.hm-date>button.hm-cal-shade{width:auto;height:auto}

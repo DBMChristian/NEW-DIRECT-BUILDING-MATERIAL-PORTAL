@@ -201,3 +201,18 @@ a.ad-row:hover{background:#FAFAF9}
 .cu-hold{width:76px}.cu-hold.on{background:#FEE2E2;border-color:#DC2626;color:#991B1B;font-weight:700}
 .cu-holdtag{display:inline-block!important;margin-left:22px;background:#DC2626;color:#fff!important;font-size:10px!important;font-weight:800;letter-spacing:.06em;border-radius:4px;padding:1px 6px}
 .cu-note small b{font-weight:700}
+
+/* customers: email and phone apart; history (13 Nov 2026) */
+.cu-em a,.cu-ph a{color:var(--ink);text-decoration:none;font-size:12.5px}.cu-em a:hover,.cu-ph a:hover{color:var(--red);text-decoration:underline}
+.cu-ph{white-space:nowrap}
+.cu-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.cu-tabs button{border:0;background:none;padding:6px 12px;font:inherit;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.cu-tabs button.on{color:var(--red);border-bottom-color:var(--red)}
+.cu-hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;max-height:420px;overflow:auto}
+.cu-hist li{display:grid;grid-template-columns:170px 130px minmax(0,1fr);gap:10px;padding:7px 4px;border-top:1px solid #F0EEEA;font-size:12.5px}
+.cu-hist li:first-child{border-top:0}
+.cu-h-when{color:var(--muted)}.cu-h-who{font-weight:700}.cu-h-what s{color:#A8A29E}.cu-h-what em{font-style:normal;font-weight:700;color:#166534}
+.cu-h-cust{margin-right:8px;color:var(--red)}
+.cu-allhist{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.cu-allhist > b{display:block;font-size:13px;margin-bottom:6px}.cu-allhist small{font-weight:400;color:var(--muted);margin-left:6px}
+@media (max-width:820px){.cu-hist li{grid-template-columns:1fr}}

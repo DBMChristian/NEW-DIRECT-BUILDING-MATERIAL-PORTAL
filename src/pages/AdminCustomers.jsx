@@ -30,7 +30,43 @@ function Limit({ c, canEdit, onSave }) {
   return <span className="cu-lim"><i>$</i><input inputMode="decimal" value={v} disabled={!canEdit} placeholder="No limit" onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} aria-label={'Credit limit of ' + c.name} /></span>;
 }
 
-function Notes({ c, notes, me, myName, onChange }) {
+/* the history: every change on this page, who made it and when, from what to what */
+const FIELD = { name: 'Name', email: 'Email', phone: 'Phone', mobile: 'Mobile', street: 'Street', suburb: 'Suburb', state: 'State', postcode: 'Postcode', abn: 'ABN',
+  account_number: 'Xero account no.', is_customer: 'Customer in Xero', is_supplier: 'Supplier in Xero', xero_status: 'Xero status', in_xero: 'In Xero',
+  xero_terms_day: 'Xero terms (day)', xero_terms_type: 'Xero terms (type)', terms: 'COD or account', price_list: 'Price list', credit_limit: 'Credit limit', on_hold: 'On hold', note: 'Note' };
+function showVal(f, v, lists) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (f === 'terms') return v === 'account' ? 'Account' : 'COD';
+  if (['on_hold', 'is_customer', 'is_supplier', 'in_xero'].includes(f)) return v === 'true' ? 'Yes' : 'No';
+  if (f === 'credit_limit') return '$' + Number(v).toLocaleString('en-AU', { minimumFractionDigits: 2 });
+  if (f === 'price_list') { const m = /^list:(\d+)$/.exec(v); return m ? ((lists.find((l) => String(l.id) === m[1]) || {}).name || 'A removed list') : v.charAt(0).toUpperCase() + v.slice(1); }
+  return v;
+}
+function History({ rows, lists, withName }) {
+  if (rows === null) return <p className="cu-none">Loading…</p>;
+  if (!rows.length) return <p className="cu-none">No changes yet.</p>;
+  return (
+    <ol className="cu-hist">
+      {rows.map((h) => (
+        <li key={h.id}>
+          <span className="cu-h-when">{when(h.at)}</span>
+          <span className="cu-h-who" title={h.by_email}>{h.by_name || h.by_email}</span>
+          <span className="cu-h-what">
+            {withName && <b className="cu-h-cust">{h.customer_name}</b>}
+            {h.action === 'Changed' ? <><b>{FIELD[h.field] || h.field}</b>: <s>{showVal(h.field, h.old_value, lists)}</s> → <em>{showVal(h.field, h.new_value, lists)}</em></>
+              : h.action.startsWith('Note') ? <><b>{h.action}</b>{h.action === 'Note edited' ? <>: <s>{h.old_value}</s> → <em>{h.new_value}</em></> : <>: <em>{h.new_value || h.old_value}</em></>}</>
+              : <b>{h.action}</b>}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Notes({ c, notes, me, myName, onChange, lists }) {
+  const [tab, setTab] = useState('notes');
+  const [hist, setHist] = useState(null);
+  useEffect(() => { if (tab === 'history') supabase.from('customer_history').select('*').eq('customer_id', c.id).order('at', { ascending: false }).limit(300).then(({ data }) => setHist(data || [])); }, [tab, c.id, notes]);
   const [text, setText] = useState('');
   const [edit, setEdit] = useState(null);
   const add = async () => { const t = text.trim(); if (!t) return; const { error } = await supabase.from('customer_notes').insert({ customer_id: c.id, text: t, by_email: me, by_name: myName }); if (!error) { setText(''); onChange(); } };
@@ -41,6 +77,8 @@ function Notes({ c, notes, me, myName, onChange }) {
       <div className="cu-det">
         {[['Email', c.email], ['Phone', c.phone], ['Mobile', c.mobile], ['Address', [c.street, c.suburb, c.state, c.postcode].filter(Boolean).join(', ')], ['ABN', c.abn], ['Xero account no.', c.account_number]].filter((x) => x[1]).map(([k, v]) => <span key={k}><small>{k}</small>{v}</span>)}
       </div>
+      <div className="cu-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === 'notes'} className={tab === 'notes' ? 'on' : ''} onClick={() => setTab('notes')}>Notes ({notes.length})</button><button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>History</button></div>
+      {tab === 'history' ? <History rows={hist} lists={lists} /> : <>
       <b className="cu-nh">Notes <small>shown in red on every order of {c.name}</small></b>
       {!notes.length && <p className="cu-none">No notes yet.</p>}
       {notes.map((n) => (
@@ -52,6 +90,7 @@ function Notes({ c, notes, me, myName, onChange }) {
         </div>
       ))}
       <div className="cu-add"><textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder={'A note about ' + c.name + ': delivery quirks, account notes…'} /><button type="button" className="btn btn-red" onClick={add} disabled={!text.trim()}>Add note</button></div>
+      </>}
     </div>
   );
 }
@@ -69,6 +108,8 @@ export default function AdminCustomers() {
   const [terms, setTerms] = useState('');
   const [open, setOpen] = useState(null);
   const [n, setN] = useState(100);
+  const [allHist, setAllHist] = useState(null);
+  const openAll = async () => { if (allHist) { setAllHist(null); return; } setAllHist([]); const { data } = await supabase.from('customer_history').select('*').order('at', { ascending: false }).limit(500); setAllHist(data || []); };
 
   const load = async () => {
     const all = []; let f = 0;
@@ -110,9 +151,11 @@ export default function AdminCustomers() {
           <div className="pp-xero"><span className={'pp-dot' + (status?.connected ? ' on' : '')} />
             <span>{status === null ? 'Checking Xero…' : status.error ? 'Xero: ' + status.error : status.connected ? <>Xero: <b>{status.tenant}</b> · syncs by itself every 30 minutes{last ? <> · last {when(last.finished_at || last.started_at)}{/^auto/.test(last.by_email || '') ? ' (auto)' : ' by ' + String(last.by_email || '').split('@')[0]}{last.ok === false ? ' · failed: ' + (last.error || '') : ''}</> : ' · not synced yet'}</> : 'Xero is not connected (Admin › Products)'}</span></div>
           {status?.connected && <button type="button" className="btn btn-red" onClick={sync} disabled={!!busy}><Icon name="sync" size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync from Xero'}</button>}
+          <button type="button" className="btn" onClick={openAll}>{allHist ? 'Hide history' : 'History'}</button>
           {status?.connected && <button type="button" className="link" onClick={reconnect} disabled={!!busy}>Reconnect</button>}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
+        {allHist && <section className="cu-allhist"><b>History of this page <small>the last 500 changes: who, when, which customer, from what to what</small></b><History rows={allHist} lists={lists} withName /></section>}
         <div className="pp-filters">
           <input type="search" className="pp-search" value={q} onChange={(e) => { setQ(e.target.value); setN(100); }} placeholder="Search a name, email, phone, suburb or ABN…" aria-label="Search customers" />
           <select value={show} onChange={(e) => { setShow(e.target.value); setN(100); }} aria-label="Show"><option value="customers">Customers</option><option value="notes">With notes</option><option value="hold">On hold</option><option value="suppliers">Suppliers</option><option value="archived">Archived or gone from Xero</option><option value="all">Everyone</option></select>
@@ -121,7 +164,7 @@ export default function AdminCustomers() {
         </div>
         <div className="pp-table-wrap">
           <table className="pp-table cu-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Suburb</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>COD or account</th><th>On hold</th><th>Credit limit</th><th>Xero terms</th><th>Price list</th><th>Notes</th></tr></thead>
             <tbody>
               {rows !== null && !list.length && <tr><td colSpan="9" className="pp-empty">{rows.length ? 'No customer matches.' : 'No customers yet: press Sync from Xero.'}</td></tr>}
               {list.slice(0, n).map((c) => {
@@ -130,8 +173,8 @@ export default function AdminCustomers() {
                   <Fragment key={c.id}>
                     <tr className={'cu-row' + (open === c.id ? ' on' : '') + (c.in_xero && c.xero_status !== 'ARCHIVED' ? '' : ' pp-gone')}>
                       <td><button type="button" className="cu-name" onClick={() => setOpen(open === c.id ? null : c.id)} aria-expanded={open === c.id}><span>{open === c.id ? '▾' : '▸'}</span><b>{c.name}</b></button>{c.on_hold && <small className="cu-holdtag">ON HOLD</small>}{c.xero_status === 'ARCHIVED' && <small className="pp-tag">Archived in Xero</small>}</td>
-                      <td><small className="cu-c">{c.email}</small><small className="cu-c">{c.mobile || c.phone}</small></td>
-                      <td>{c.suburb}</td>
+                      <td className="cu-em">{c.email ? <a href={'mailto:' + c.email}>{c.email}</a> : <span className="pp-muted">—</span>}</td>
+                      <td className="cu-ph">{c.mobile || c.phone ? <a href={'tel:' + (c.mobile || c.phone).replace(/[^0-9+]/g, '')}>{c.mobile || c.phone}</a> : <span className="pp-muted">—</span>}</td>
                       <td><select className="pp-pick" value={c.terms} disabled={!canEdit} onChange={(e) => setField(c, { terms: e.target.value })} aria-label={'Terms of ' + c.name}><option value="cod">COD</option><option value="account">Account</option></select></td>
                       <td><select className={'pp-pick cu-hold' + (c.on_hold ? ' on' : '')} value={c.on_hold ? 'yes' : 'no'} disabled={!canEdit} onChange={(e) => setField(c, { on_hold: e.target.value === 'yes' })} aria-label={'On hold: ' + c.name}><option value="no">No</option><option value="yes">Yes</option></select></td>
                       <td><Limit c={c} canEdit={canEdit} onSave={setField} /></td>
@@ -139,7 +182,7 @@ export default function AdminCustomers() {
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>
                     </tr>
-                    {open === c.id && <tr className="cu-open"><td colSpan="9"><Notes c={c} notes={cn} me={staff.email} myName={staff.name || staff.email.split('@')[0]} onChange={loadNotes} /></td></tr>}
+                    {open === c.id && <tr className="cu-open"><td colSpan="9"><Notes c={c} notes={cn} me={staff.email} myName={staff.name || staff.email.split('@')[0]} onChange={loadNotes} lists={lists} /></td></tr>}
                   </Fragment>
                 );
               })}

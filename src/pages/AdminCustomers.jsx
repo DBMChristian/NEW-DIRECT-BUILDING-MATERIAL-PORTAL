@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
+import { canConnectXero } from '../lib/xeroOwner.js';
 
 /* Admin > Customers (13 Nov 2026): every Xero contact (Sync from Xero, and by itself every 30 minutes), with what Direct
    keeps on top: COD or account, the customer's price list, and the team's notes, shown on every order of theirs.
@@ -182,7 +183,7 @@ export default function AdminCustomers() {
           <div className="pp-xero"><span className={'pp-dot' + (status?.connected ? ' on' : '')} />
             <span>{status === null ? 'Checking Xero…' : status.error ? 'Xero: ' + status.error : status.connected ? <>Xero: <b>{status.tenant}</b> · syncs by itself every 30 minutes{last ? <> · last {when(last.finished_at || last.started_at)}{/^auto/.test(last.by_email || '') ? ' (auto)' : ' by ' + String(last.by_email || '').split('@')[0]}{last.ok === false ? ' · failed: ' + (last.error || '') : ''}</> : ' · not synced yet'}</> : 'Xero is not connected (Admin › Products)'}</span></div>
           {status?.connected && <button type="button" className="btn btn-red" onClick={sync} disabled={!!busy}><Icon name="sync" size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync from Xero'}</button>}
-          {status?.connected && <button type="button" className="link" onClick={reconnect} disabled={!!busy}>Reconnect</button>}
+          {status?.connected && canConnectXero(staff) && <button type="button" className="link" onClick={reconnect} disabled={!!busy}>Reconnect</button>}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
         {pending && <ReasonDialog p={pending} lists={lists} onDone={(cancel) => { setPending(null); if (cancel) setVer((v) => v + 1); }} />}

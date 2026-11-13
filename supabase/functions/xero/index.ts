@@ -104,6 +104,9 @@ Deno.serve(async (req) => {
     if (who.role !== "admin") return json({ error: "Only an admin can do that" }, 403);
 
     if (action === "connect") {
+      /* only these people connect or reconnect Xero (XERO_OWNERS, a secret, comma separated; default Christian) */
+      const owners = (env("XERO_OWNERS") || "christian@discountbuildingmaterial.com.au").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+      if (!owners.includes(who!.email)) return json({ error: "Only " + owners.join(", ") + " can connect Xero." }, 403);
       if (!env("XERO_CLIENT_ID") || !env("XERO_REDIRECT_URI")) return json({ error: "The Xero app is not set up yet (XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI)." }, 409);
       const returnTo = /^https?:\/\//.test(String(body?.return_to || "")) ? String(body.return_to) : "";
       if (!returnTo) return json({ error: "Send return_to" }, 400);

@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
+import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import Icon from '../components/Icon.jsx';
+import { canConnectXero } from '../lib/xeroOwner.js';
 
 /* Admin > Products and prices (13 Nov 2026): every product as Xero has it, pulled with "Sync from Xero", and Direct's own
    price lists (builder, installer, retail) beside Xero's price. Category, unit and the three prices are Direct's: typed
@@ -67,6 +69,8 @@ function Pick({ p, field, options, empty, onSaved }) {
 }
 
 export default function AdminProducts() {
+  const { staff } = useAuth();
+  const owner = canConnectXero(staff);
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
@@ -134,8 +138,8 @@ export default function AdminProducts() {
           </div>
           {status && !status.error && (status.connected
             ? <button type="button" className="btn btn-red" onClick={sync} disabled={!!busy}><Icon name="sync" size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync from Xero'}</button>
-            : <button type="button" className="btn btn-red" onClick={connect} disabled={!!busy || status.setup === false}>{busy === 'connect' ? 'Opening Xero…' : 'Connect Xero'}</button>)}
-          {status?.connected && <button type="button" className="link" onClick={connect} disabled={!!busy}>Reconnect</button>}
+            : owner ? <button type="button" className="btn btn-red" onClick={connect} disabled={!!busy || status.setup === false}>{busy === 'connect' ? 'Opening Xero…' : 'Connect Xero'}</button> : <span className="pp-muted">Ask Christian to connect Xero</span>)}
+          {status?.connected && owner && <button type="button" className="link" onClick={connect} disabled={!!busy}>Reconnect</button>}
         </div>
         {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
         <div className="pp-filters">

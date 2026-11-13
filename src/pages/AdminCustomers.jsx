@@ -30,11 +30,11 @@ function Limit({ c, canEdit, onSave }) {
   return <span className="cu-lim"><i>$</i><input inputMode="decimal" value={v} disabled={!canEdit} placeholder="No limit" onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} aria-label={'Credit limit of ' + c.name} /></span>;
 }
 
-function Notes({ c, notes, me, onChange }) {
+function Notes({ c, notes, me, myName, onChange }) {
   const [text, setText] = useState('');
   const [edit, setEdit] = useState(null);
-  const add = async () => { const t = text.trim(); if (!t) return; const { error } = await supabase.from('customer_notes').insert({ customer_id: c.id, text: t, by_email: me }); if (!error) { setText(''); onChange(); } };
-  const save = async () => { const t = edit.text.trim(); if (!t) return; const { error } = await supabase.from('customer_notes').update({ text: t, updated_at: new Date().toISOString() }).eq('id', edit.id); if (!error) { setEdit(null); onChange(); } };
+  const add = async () => { const t = text.trim(); if (!t) return; const { error } = await supabase.from('customer_notes').insert({ customer_id: c.id, text: t, by_email: me, by_name: myName }); if (!error) { setText(''); onChange(); } };
+  const save = async () => { const t = edit.text.trim(); if (!t) return; const { error } = await supabase.from('customer_notes').update({ text: t, edited_by_name: myName, updated_at: new Date().toISOString() }).eq('id', edit.id); if (!error) { setEdit(null); onChange(); } };
   const del = async (n) => { if (!window.confirm('Delete this note?')) return; const { error } = await supabase.from('customer_notes').delete().eq('id', n.id); if (!error) onChange(); };
   return (
     <div className="cu-notes">
@@ -47,7 +47,7 @@ function Notes({ c, notes, me, onChange }) {
         <div key={n.id} className="cu-note">
           {edit && edit.id === n.id
             ? <><textarea value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} rows={2} /><div className="cu-na"><button type="button" className="btn btn-red" onClick={save}>Save</button><button type="button" className="link" onClick={() => setEdit(null)}>Cancel</button></div></>
-            : <><p>{n.text}</p><small>{String(n.by_email || '').split('@')[0]} · {when(n.updated_at || n.created_at)}{n.updated_at !== n.created_at ? ' (edited)' : ''}</small>
+            : <><p>{n.text}</p><small>Added by <b>{n.by_name || String(n.by_email || '').split('@')[0]}</b> · {when(n.created_at)}{n.edited_by_name ? <> · edited by <b>{n.edited_by_name}</b> · {when(n.updated_at)}</> : ''}</small>
               <div className="cu-na"><button type="button" className="link" onClick={() => setEdit({ id: n.id, text: n.text })}>Edit</button><button type="button" className="link" onClick={() => del(n)}>Delete</button></div></>}
         </div>
       ))}
@@ -139,7 +139,7 @@ export default function AdminCustomers() {
                       <td><select className="pp-pick" value={c.price_list} disabled={!canEdit} onChange={(e) => setField(c, { price_list: e.target.value })} aria-label={'Price list of ' + c.name}><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{lists.map((l) => <option key={l.id} value={'list:' + l.id}>{l.name}</option>)}</select></td>
                       <td>{cn.length ? <button type="button" className="cu-badge" onClick={() => setOpen(c.id)}>{cn.length} note{cn.length === 1 ? '' : 's'}</button> : <button type="button" className="link" onClick={() => setOpen(c.id)}>+ Note</button>}</td>
                     </tr>
-                    {open === c.id && <tr className="cu-open"><td colSpan="9"><Notes c={c} notes={cn} me={staff.email} onChange={loadNotes} /></td></tr>}
+                    {open === c.id && <tr className="cu-open"><td colSpan="9"><Notes c={c} notes={cn} me={staff.email} myName={staff.name || staff.email.split('@')[0]} onChange={loadNotes} /></td></tr>}
                   </Fragment>
                 );
               })}

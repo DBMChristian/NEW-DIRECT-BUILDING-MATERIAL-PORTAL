@@ -200,3 +200,4 @@ a.ad-row:hover{background:#FAFAF9}
 .cu-lim:focus-within{outline:2px solid var(--red)}.cu-lim input::placeholder{color:#B8B2AA}
 .cu-hold{width:76px}.cu-hold.on{background:#FEE2E2;border-color:#DC2626;color:#991B1B;font-weight:700}
 .cu-holdtag{display:inline-block!important;margin-left:22px;background:#DC2626;color:#fff!important;font-size:10px!important;font-weight:800;letter-spacing:.06em;border-radius:4px;padding:1px 6px}
+.cu-note small b{font-weight:700}

@@ -655,3 +655,12 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-pf{font-weight:700;color:#15803D}.no-pf.neg,.no-prof .neg b{color:#B91C1C}
 .no-ghp{margin-left:auto;font-weight:700;text-transform:none;letter-spacing:0;font-size:12px;background:rgba(255,255,255,.18);border-radius:4px;padding:2px 8px}
 .no-prof{border-top:1px dashed #D6D3D1;padding-top:6px;font-size:12.5px}.no-prof .no-sl b{color:#15803D}
+
+/* the order on the right: every line by material, items then additional charges (13 Nov 2026) */
+.no-sumlist{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow-y:auto;margin:0 -4px;padding:0 4px}
+.no-sg{border:1px solid #E7E5E4;border-radius:5px;overflow:hidden}
+.no-sgh{display:flex;justify-content:space-between;align-items:center;color:#fff;font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:4px 8px}
+.no-ssh{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#78716C;background:#FAFAF9;padding:3px 8px;border-top:1px solid #F0EEEA}
+.no-si{display:flex;justify-content:space-between;gap:8px;padding:4px 8px;font-size:12px;border-top:1px solid #F5F5F4}
+.no-si span{min-width:0}.no-si small{display:block;font-size:11px;color:#57534E}.no-si b{white-space:nowrap}
+.no-sic{background:#FCFCFB;color:#44403C}

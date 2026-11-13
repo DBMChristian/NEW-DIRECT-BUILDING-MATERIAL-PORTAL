@@ -523,6 +523,15 @@ export default function NewOrder() {
             <div className="no-ct">The {o.kind === 'quote' ? 'quote' : 'order'}</div>
             {o.customer ? <div className="no-sum-c"><b>{o.customer.name}</b> · {o.customer.terms === 'account' ? 'Account' : 'COD'}</div> : <p className="no-sub">No company yet.</p>}
             {loadCharges.map(({ L, cats, inLoad, ch }) => <div key={L.uid} className="no-sl"><span><i style={{ background: COLOR[cats[0]] || '#78716C' }} />Load {L.n} · {cats.join(', ')} · {L.fulfil === 'delivery' ? 'delivery' : 'pick-up'}{L.date ? ' ' + new Date(L.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric' }) : ''}</span></div>)}
+            {/* every line, by material: its items, then its additional charges */}
+            {soCats.length > 0 && <div className="no-sumlist">{soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c && !x.off); return (
+              <div key={c} className="no-sg">
+                <div className="no-sgh" style={{ background: HEAD[c] }}>{c}<b>{cash(r2(ls.reduce((t, l) => t + r2(l.qty * l.price), 0) + chs.reduce((t, x) => t + r2(x.qty * x.price), 0)))}</b></div>
+                <div className="no-ssh">Items</div>
+                {ls.map((l) => <div key={l.key} className="no-si"><span>{lineName(l)}<small>{Number(l.qty)} {l.unit} × {cash(l.price)}</small></span><b>{cash(r2(l.qty * l.price))}</b></div>)}
+                {chs.length > 0 && <><div className="no-ssh">Additional charges</div>
+                  {chs.map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
+              </div>); })}</div>}
             {pos.length > 0 && <div className="no-what">{pos.map((P, i) => 'PO ' + (i + 1) + ' to ' + (P.supplier || '…').replace(' Pty Ltd', '')).join(' · ')}{stockKeys.length ? ' · from Penrith stock' : ''}</div>}
             <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
             {(() => { const cs = r2(lines.reduce((t, l) => t + costOf(l), 0) + allCharges.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sub - cs); return <div className="no-prof"><div className="no-sl"><span>Cost (Xero)</span><b>{cash(cs)}</b></div><div className={'no-sl' + (pr < 0 ? ' neg' : '')}><span>Profit</span><b>{cash(pr)} · {pct(pr, sub)}%</b></div></div>; })()}

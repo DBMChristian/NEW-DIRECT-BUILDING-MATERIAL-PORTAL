@@ -26,7 +26,10 @@ function Seg({ value, set, options }) {
   return <div className="no-seg" role="group">{options.map(([v, l]) => <button key={v} type="button" className={value === v ? 'on' : ''} aria-pressed={value === v} onClick={() => set(v)}>{l}</button>)}</div>;
 }
 
-const blankLoad = (n) => ({ uid: key(), fulfil: 'delivery', site: '', date: '', time: 'Any time', answers: {}, items: {}, n });
+/* their phone: an Australian mobile shown as +61 4… (else as typed) */
+const phoneOut = (o) => { const d = String(o.contact_phone || '').replace(/\D/g, ''); if (!o.mobile) return String(o.contact_phone || '').trim(); const m = d.replace(/^(61|0)/, ''); return m ? '+61 ' + m : ''; };
+const fmtMob = (v) => { const d = String(v || '').replace(/\D/g, '').replace(/^(61|0)/, '').slice(0, 9); return d.replace(/^(\d{1})(\d{0,2})(\d{0,3})(\d{0,3}).*/, (_, a, b, c, e) => [a + b, c, e].filter(Boolean).join(' ')); };
+const blankLoad = (n, h = {}) => ({ uid: key(), fulfil: 'delivery', site: h.site || '', date: h.date || '', time: h.time || 'Any time', answers: {}, items: {}, n });
 const qtyIn = (map, k) => Number((map || {})[k] || 0);
 
 export default function NewOrder() {
@@ -37,13 +40,17 @@ export default function NewOrder() {
   const [extraPrices, setExtraPrices] = useState({});
   const [routes, setRoutes] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
-  const [o, setO] = useState({ id: null, kind: 'order', customer: null, contact_name: '', contact_phone: '', email: '', their_po: '', instructions: '' });
+  const [o, setO] = useState({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] });
   const [lines, setLines] = useState([]);          /* { key, product_id, code, name, unit, category, qty, price, list, reason } */
   const [loadsHand, setLoadsHand] = useState(null); /* null: one load per material by itself; else the loads as arranged */
   const [loadInfo, setLoadInfo] = useState({});    /* the automatic loads' day, site, questions, by material */
   const [posHand, setPosHand] = useState(null);     /* null: one PO per supplier by itself; else the POs as arranged */
   const [over, setOver] = useState({});            /* a charge typed over: { 'load|key': { price, qty, reason, off } } */
   const [notes, setNotes] = useState([]);
+  const [priceLists, setPriceLists] = useState([]);
+  const [syncing, setSyncing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [newCust, setNewCust] = useState(null);
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
   const [cat, setCat] = useState(''); const [q, setQ] = useState(''); const [all, setAll] = useState(false);
   const [saved, setSaved] = useState(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(null); const [done, setDone] = useState(null);
@@ -56,10 +63,11 @@ export default function NewOrder() {
     for (;;) { const { data } = await supabase.from('product_prices').select('product_id, list_id, price').range(f, f + 999); (data || []).forEach((r) => { (ex[r.product_id] = ex[r.product_id] || {})[r.list_id] = Number(r.price); }); if (!data || data.length < 1000) break; f += 1000; }
     setExtraPrices(ex);
     const rt = await supabase.from('supplier_routes').select('portal, categories, supplier_id, supplier:suppliers(id, name, active)'); setRoutes(rt.data || []);
+    const pls = await supabase.from('price_lists').select('id, name').order('sort'); setPriceLists(pls.data || []);
     const sp = await supabase.from('suppliers').select('id, name, active').eq('active', true).order('name'); setSuppliers(sp.data || []);
   })(); }, []);
 
-  const priceFor = (p, pl = o.customer?.price_list || 'builder') => {
+  const priceFor = (p, pl = o.price_list || o.customer?.price_list || 'builder') => {
     if (!p) return 0;
     const m = /^list:(\d+)$/.exec(pl), v = m ? (extraPrices[p.id] || {})[m[1]] : pl === 'installer' ? p.price_installer : pl === 'online' ? p.price_online : p.price_builder;
     return Number(v ?? p.xero_sales_price ?? 0);
@@ -68,18 +76,21 @@ export default function NewOrder() {
   const ctx = { priceOf: (code) => priceFor(byCode.get(String(code).toLowerCase())), nameOf: (code) => byCode.get(String(code).toLowerCase())?.name, company: o.customer?.name, noImpc: true };
   const routeOf = (c) => routes.find((r) => (r.categories || []).includes(c) && r.supplier?.active !== false);
 
+  /* the header's site, delivery date and booking time: each load starts from them */
+  const headSite = [o.site_street, o.site_suburb].map((x) => String(x || '').trim()).filter(Boolean).join(', ');
+  const headLoad = { site: headSite, date: o.delivery_date || '', time: o.booking_time || 'Any time' };
   /* ---------- the loads: by themselves one per material, else as arranged ---------- */
   const loads = useMemo(() => {
     if (loadsHand) return loadsHand.map((L) => ({ ...L, items: Object.fromEntries(Object.entries(L.items).filter(([k]) => lines.some((l) => l.key === k))) }));
-    return CATS.filter((c) => lines.some((l) => l.category === c)).map((c, i) => ({ ...blankLoad(i + 1), uid: 'auto-' + c, ...(loadInfo[c] || {}), auto: c, n: i + 1,
+    return CATS.filter((c) => lines.some((l) => l.category === c)).map((c, i) => ({ ...blankLoad(i + 1), ...headLoad, uid: 'auto-' + c, ...(loadInfo[c] || {}), auto: c, n: i + 1,
       items: Object.fromEntries(lines.filter((l) => l.category === c).map((l) => [l.key, l.qty])) }));
-  }, [loadsHand, lines, loadInfo]);
+  }, [loadsHand, lines, loadInfo, headSite, o.delivery_date, o.booking_time]);
   const arrangeLoads = () => loadsHand || loads.map((L) => ({ ...L, auto: undefined, uid: key() }));
   const setLoad = (uid, ch) => { if (!loadsHand) { const L = loads.find((x) => x.uid === uid); if (L && L.auto) { setLoadInfo((I) => ({ ...I, [L.auto]: { ...(I[L.auto] || {}), ...ch } })); return; } }
     setLoadsHand((Ls) => (Ls || arrangeLoads()).map((L) => (L.uid === uid ? { ...L, ...ch } : L))); };
   const setAns = (uid, ch) => { const L = loads.find((x) => x.uid === uid); setLoad(uid, { answers: { ...(L?.answers || {}), ...ch } }); };
   const setLoadQty = (uid, k, v) => setLoadsHand((Ls) => (Ls || arrangeLoads().map((L, i) => ({ ...L, uid: loads[i].uid }))).map((L) => (L.uid === uid ? { ...L, items: { ...L.items, [k]: v } } : L)));
-  const addLoad = () => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, blankLoad(base.length + 1)]; });
+  const addLoad = () => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, blankLoad(base.length + 1, headLoad)]; });
   const removeLoad = (uid) => setLoadsHand((Ls) => (Ls || loads.map((L) => ({ ...L, auto: undefined }))).filter((L) => L.uid !== uid).map((L, i) => ({ ...L, n: i + 1 })));
   const moveToLoad = (k, from, to) => setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); const q0 = qtyIn(base.find((L) => L.uid === from)?.items, k);
     return base.map((L) => (L.uid === from ? { ...L, items: { ...L.items, [k]: 0 } } : L.uid === to ? { ...L, items: { ...L.items, [k]: qtyIn(L.items, k) + q0 } } : L)); });
@@ -101,14 +112,35 @@ export default function NewOrder() {
   /* customer search */
   useEffect(() => { const t = cq.trim(); if (t.length < 2 || o.customer) { setCHits([]); return; }
     const h = setTimeout(async () => { const like = '%' + t.replace(/[%_]/g, '') + '%';
-      const { data } = await supabase.from('customers').select('*').or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},mobile.ilike.${like}`).eq('in_xero', true).order('name').limit(10); setCHits(data || []); }, 200);
+      const { data } = await supabase.from('customers').select('*').or(`name.ilike.${like},email.ilike.${like},phone.ilike.${like},mobile.ilike.${like}`).neq('xero_status', 'ARCHIVED').order('name').limit(10); setCHits(data || []); }, 200);
     return () => clearTimeout(h); }, [cq, o.customer]);
   const pickCustomer = async (c) => {
-    setO((x) => ({ ...x, customer: c, contact_name: x.contact_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.name, contact_phone: x.contact_phone || c.mobile || c.phone, email: x.email || c.email }));
+    setO((x) => ({ ...x, customer: c, terms: c.terms || 'cod', price_list: c.price_list || 'builder', contact_name: x.contact_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || c.name, contact_phone: x.contact_phone || c.mobile || c.phone, mobile: x.contact_phone ? x.mobile : /^(\+?61|0)?\s*4/.test(String(c.mobile || c.phone || '').replace(/[^0-9+]/g, '')) || !(c.mobile || c.phone), email: x.email || c.email }));
     setCq(''); setCHits([]);
     const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', c.id).order('created_at', { ascending: false }); setNotes(data || []);
     setLines((ls) => ls.map((l) => { const p = products.find((x) => x.id === l.product_id); const np = priceFor(p, c.price_list); return { ...l, list: np, price: l.price === l.list ? np : l.price }; }));
   };
+
+  /* Sync (Xero): the customers again, then this company's record */
+  const syncXero = async () => { setSyncing(true); setMsg(null);
+    const { error } = await supabase.functions.invoke('xero', { body: { action: 'sync_contacts' } });
+    if (o.customer) { const { data } = await supabase.from('customers').select('*').eq('id', o.customer.id).maybeSingle(); if (data) setO((x) => ({ ...x, customer: data })); }
+    setSyncing(false); setMsg(error ? { bad: true, text: 'Sync: ' + error.message } : { text: 'Customers synced from Xero.' }); };
+  /* + New customer: added here; it goes to Xero with its first invoice */
+  const addCustomer = async () => {
+    const { data, error } = await supabase.from('customers').insert({ name: newCust.name.trim(), email: newCust.email.trim(), phone: newCust.phone.trim(), is_customer: true, in_xero: false, terms: 'cod', price_list: 'builder' }).select('*').single();
+    if (error) { setMsg({ bad: true, text: error.message }); return; }
+    setNewCust(null); pickCustomer(data);
+  };
+  /* plans or drawings: kept with the order (private) */
+  const uploadPlans = async (files) => {
+    if (!files || !files.length) return; setUploading(true);
+    const add = [];
+    for (const f of files) { const path = 'plans/' + Date.now() + '-' + f.name.replace(/[^A-Za-z0-9._-]+/g, '_');
+      const { error } = await supabase.storage.from('order-files').upload(path, f); if (error) { setMsg({ bad: true, text: f.name + ': ' + error.message }); continue; } add.push({ path, name: f.name }); }
+    setO((x) => ({ ...x, plans: [...x.plans, ...add] })); setUploading(false);
+  };
+  const openPlan = async (f) => { const { data } = await supabase.storage.from('order-files').createSignedUrl(f.path, 300); if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener'); };
 
   /* products to pick from: items only (the form adds the charges itself) */
   const pickable = useMemo(() => products.filter((p) => p.in_xero && p.active && p.sub_category !== 'additional_charge' && !FORM_CHARGES.includes(String(p.code).toUpperCase())), [products]);
@@ -149,7 +181,12 @@ export default function NewOrder() {
   /* ---------- what is still missing ---------- */
   const missing = useMemo(() => {
     if (!o.customer) return 'Choose the company.';
-    if (!o.contact_name.trim() || !o.contact_phone.trim()) return 'Enter their name and phone.';
+    if (!o.contact_name.trim()) return 'Enter their name.';
+    if (o.mobile ? !/^4\d{8}$/.test(o.contact_phone.replace(/\D/g, '').replace(/^(61|0)/, '')) : o.contact_phone.replace(/\D/g, '').length < 8) return o.mobile ? 'Their phone: an Australian mobile, 04xx xxx xxx (or press Not a mobile?).' : 'Their phone: enter the number.';
+    if (!o.site_street.trim() || !o.site_suburb.trim()) return 'Enter the site address (street, then suburb and postcode).';
+    if (o.kind === 'order' && !o.delivery_date) return 'Choose the delivery date.';
+    if (o.kind === 'order' && !o.booking_time) return 'Select a booking time.';
+    if (o.sms === null) return 'SMS booking confirmation: Yes or No.';
     if (!lines.length) return 'Add at least one product.';
     const bad = lines.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || allCharges.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
     if (bad) return 'Build SO: give the reason for the changed price of ' + bad.name + '.';
@@ -168,8 +205,8 @@ export default function NewOrder() {
     if (!o.customer && !lines.length) return o.id;
     if (busyRef.current) return o.id; busyRef.current = true;
     try {
-      const head = { kind: o.kind, customer_id: o.customer?.id || null, customer_name: o.customer?.name || '', terms: o.customer?.terms || 'cod', price_list: o.customer?.price_list || 'builder',
-        contact_name: o.contact_name, contact_phone: o.contact_phone, email: o.email, their_po: o.their_po, instructions: o.instructions, subtotal: sub, gst, total, updated_at: new Date().toISOString() };
+      const head = { kind: o.kind, customer_id: o.customer?.id || null, customer_name: o.customer?.name || '', terms: o.terms || 'cod', price_list: o.price_list || 'builder', site_street: o.site_street, site_suburb: o.site_suburb, delivery_date: o.delivery_date || null, booking_time: o.booking_time, sms_confirm: o.sms, plans: o.plans,
+        contact_name: o.contact_name, contact_phone: phoneOut(o), email: o.email, their_po: o.their_po, instructions: o.instructions, subtotal: sub, gst, total, updated_at: new Date().toISOString() };
       let id = o.id;
       if (!id) { const r = await supabase.from('orders').insert({ ...head, created_by: staff.email, created_by_name: staff.name || staff.email.split('@')[0] }).select('id').single(); if (r.error) throw r.error; id = r.data.id; setO((x) => ({ ...x, id })); }
       else { const r = await supabase.from('orders').update(head).eq('id', id).eq('status', 'draft'); if (r.error) throw r.error; }
@@ -197,7 +234,7 @@ export default function NewOrder() {
     } catch (e) { setMsg({ bad: true, text: 'Not saved: ' + (e.message || e) }); return o.id; }
     finally { busyRef.current = false; }
   };
-  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o.kind, o.customer, o.contact_name, o.contact_phone, o.email, o.their_po, o.instructions, lines, loadsHand, loadInfo, posHand, over]);
+  useEffect(() => { const t = setTimeout(save, 1500); return () => clearTimeout(t); }, [o,  lines, loadsHand, loadInfo, posHand, over]);
 
   const place = async () => {
     if (missing) { setMsg({ bad: true, text: 'Not ready: ' + missing }); return; }
@@ -208,7 +245,7 @@ export default function NewOrder() {
     if (error) { setMsg({ bad: true, text: error.message }); return; }
     setDone({ number: data.number, kind: o.kind, total, customer: o.customer.name });
   };
-  const restart = () => { setO({ id: null, kind: 'order', customer: null, contact_name: '', contact_phone: '', email: '', their_po: '', instructions: '' }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
+  const restart = () => { setO({ id: null, kind: 'order', customer: null, terms: 'cod', price_list: '', contact_name: '', contact_phone: '', mobile: true, email: '', their_po: '', instructions: '', site_street: '', site_suburb: '', delivery_date: '', booking_time: '', sms: null, plans: [] }); setLines([]); setLoadsHand(null); setLoadInfo({}); setPosHand(null); setOver({}); setNotes([]); setDone(null); setSaved(null); setMsg(null); setTab('so'); };
 
   if (done) return (
     <>
@@ -236,33 +273,49 @@ export default function NewOrder() {
       <div className="no">
         <div className="no-main">
           <section className="no-card" aria-label="Customer">
-            <div className="no-ct">Customer<span className="no-kind"><Seg value={o.kind} set={(v) => setO({ ...o, kind: v })} options={[['order', 'Order'], ['quote', 'Quote']]} /></span></div>
-            {!o.customer ? (
-              <label className="no-f">Company <span className="req">*</span>
-                <input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" autoFocus />
-                {cHits.length > 0 && <div className="no-pop">{cHits.map((c) => <button key={c.id} type="button" onClick={() => pickCustomer(c)}><b>{c.name}</b><small>{[c.email, c.mobile || c.phone].filter(Boolean).join(' · ')} · {c.terms === 'account' ? 'Account' : 'COD'}{c.on_hold ? ' · ON HOLD' : ''}</small></button>)}</div>}
-              </label>
-            ) : (
-              <>
-                <div className="no-cust"><b>{o.customer.name}</b><button type="button" className="link" onClick={() => { setO({ ...o, customer: null }); setNotes([]); }}>Change</button></div>
-                <div className="no-chips">
-                  <span className="no-chip" style={{ background: '#FEF3C7', color: '#92400E' }}>{o.customer.terms === 'account' ? 'Account' : 'COD'}</span>
-                  <span className="no-chip" style={{ background: '#E0E7FF', color: '#3730A3' }}>{/^list:/.test(o.customer.price_list) ? 'Special prices' : o.customer.price_list.charAt(0).toUpperCase() + o.customer.price_list.slice(1) + ' prices'}</span>
-                  {o.customer.credit_limit != null && <span className="no-chip" style={{ background: '#F5F5F4', color: '#44403C' }}>Limit {cash(o.customer.credit_limit)}</span>}
-                  {owes > 0 && <span className="no-chip" style={{ background: '#FEE2E2', color: '#991B1B' }}>Owes {cash(owes)}</span>}
-                  {o.customer.on_hold && <span className="no-chip" style={{ background: '#DC2626', color: '#fff' }}>ON HOLD</span>}
-                </div>
-                {notes.map((n) => <div key={n.id} className="no-note">{n.text}<small>{n.by_name || n.by_email} · {new Date(n.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</small></div>)}
-                <div className="no-grid">
-                  <label className="no-f">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} /></label>
-                  <label className="no-f">Their phone <span className="req">*</span><input value={o.contact_phone} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" /></label>
-                  <label className="no-f">Email for the invoice<input value={o.email} onChange={(e) => setO({ ...o, email: e.target.value })} type="email" /></label>
-                  <label className="no-f">Their PO<input value={o.their_po} onChange={(e) => setO({ ...o, their_po: e.target.value })} placeholder="Optional" /></label>
-                </div>
-              </>
-            )}
-          </section>
+            <div className="no-hd">
+              <div className="no-f no-c1">Company <span className="req">*</span>
+                {!o.customer ? <div className="no-cwrap"><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" aria-label="Company" autoFocus />
+                  {cHits.length > 0 && <div className="no-pop">{cHits.map((c) => <button key={c.id} type="button" onClick={() => pickCustomer(c)}><b>{c.name}</b><small>{[c.email, c.mobile || c.phone].filter(Boolean).join(' · ')} · {c.terms === 'account' ? 'Account' : 'COD'}{c.on_hold ? ' · ON HOLD' : ''}</small></button>)}</div>}</div>
+                  : <div className="no-cust"><b>{o.customer.name}</b><button type="button" className="link" onClick={() => { setO({ ...o, customer: null }); setNotes([]); }}>Change</button></div>}
+                <div className="no-two"><button type="button" className="btn" disabled={syncing} onClick={syncXero}>{syncing ? 'Syncing…' : '↻ Sync (Xero)'}</button><button type="button" className="btn" onClick={() => setNewCust({ name: cq, email: '', phone: '' })}>+ New customer</button></div>
+              </div>
+              <div className="no-f">COD or ACC <span className="req">*</span><Seg value={o.terms} set={(v) => setO({ ...o, terms: v })} options={[['cod', 'COD'], ['account', 'ACC']]} /></div>
+              <div className="no-f">Order or quote <span className="req">*</span><Seg value={o.kind} set={(v) => setO({ ...o, kind: v })} options={[['order', 'Order'], ['quote', 'Quote']]} /></div>
+              <label className="no-f">Price list <span className="req">*</span><select value={o.price_list} onChange={(e) => { const pl = e.target.value; setO({ ...o, price_list: pl }); setLines((ls) => ls.map((l) => { const p = products.find((x) => x.id === l.product_id); const np = priceFor(p, pl); return { ...l, list: np, price: l.price === l.list ? np : l.price }; })); }}>
+                <option value="">Choose a price list…</option><option value="builder">Builder</option><option value="installer">Installer</option><option value="online">Online</option>{priceLists.map((pl) => <option key={pl.id} value={'list:' + pl.id}>{pl.name}</option>)}</select></label>
+              <div className="no-f">Their PO <i className="no-opt">(optional)</i><input value={o.their_po} onChange={(e) => setO({ ...o, their_po: e.target.value })} placeholder="PO / ref" aria-label="Their PO" />
+                <label className="btn no-plans">{uploading ? 'Uploading…' : 'Plans or drawings' + (o.plans.length ? ' (' + o.plans.length + ')' : '')}<input type="file" multiple accept=".pdf,image/*,.dwg,.dxf" onChange={(e) => uploadPlans(e.target.files)} hidden /></label></div>
 
+              <label className="no-f">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} placeholder="Who is this order for?" /></label>
+              <div className="no-f">Their phone <span className="req">*</span><button type="button" className="link no-notmob" onClick={() => setO({ ...o, mobile: !o.mobile, contact_phone: '' })}>{o.mobile ? 'Not a mobile?' : 'A mobile?'}</button>
+                {o.mobile ? <span className="no-mob"><b>AU +61</b><input value={fmtMob(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" placeholder="4xx xxx xxx" aria-label="Their mobile" /></span>
+                  : <input value={o.contact_phone} onChange={(e) => setO({ ...o, contact_phone: e.target.value })} inputMode="tel" placeholder="02 xxxx xxxx" aria-label="Their phone" />}</div>
+              <div className="no-f">Site address <span className="req">*</span><span className="no-two"><input value={o.site_street} onChange={(e) => setO({ ...o, site_street: e.target.value })} placeholder="14 Banks Rd" aria-label="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
+              <label className="no-f">Email for the invoice<input type="email" value={o.email} onChange={(e) => setO({ ...o, email: e.target.value })} placeholder="Email for this order" /></label>
+              <label className="no-f">Notes<input value={o.instructions} onChange={(e) => setO({ ...o, instructions: e.target.value })} placeholder="Special instructions…" /></label>
+
+              <label className="no-f">Delivery date {o.kind === 'order' && <span className="req">*</span>}<input type="date" value={o.delivery_date} onChange={(e) => setO({ ...o, delivery_date: e.target.value })} /></label>
+              <label className="no-f">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
+              <div className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>
+            </div>
+            {o.customer && <div className="no-chips">
+              <span className="no-chip" style={{ background: '#FEF3C7', color: '#92400E' }}>{o.customer.terms === 'account' ? 'Account customer' : 'COD customer'}</span>
+              {o.customer.credit_limit != null && <span className="no-chip" style={{ background: '#F5F5F4', color: '#44403C' }}>Limit {cash(o.customer.credit_limit)}</span>}
+              {owes > 0 && <span className="no-chip" style={{ background: '#FEE2E2', color: '#991B1B' }}>Owes {cash(owes)}</span>}
+              {o.customer.on_hold && <span className="no-chip" style={{ background: '#DC2626', color: '#fff' }}>ON HOLD</span>}
+              {!o.customer.in_xero && <span className="no-chip" style={{ background: '#E0E7FF', color: '#3730A3' }}>New: not in Xero yet</span>}
+            </div>}
+            {notes.map((n) => <div key={n.id} className="no-note">{n.text}<small>{n.by_name || n.by_email} · {new Date(n.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</small></div>)}
+            {o.plans.length > 0 && <div className="no-files">{o.plans.map((f) => <button key={f.path} type="button" className="no-file" onClick={() => openPlan(f)}>{f.name} ↗</button>)}</div>}
+            {newCust && <div className="no-newc">
+              <b>New customer</b><span className="no-sub">Added here now; it goes to Xero with its first invoice.</span>
+              <div className="no-grid"><label className="no-f">Company or name <span className="req">*</span><input value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} autoFocus /></label>
+                <label className="no-f">Email<input type="email" value={newCust.email} onChange={(e) => setNewCust({ ...newCust, email: e.target.value })} /></label>
+                <label className="no-f">Phone<input value={newCust.phone} onChange={(e) => setNewCust({ ...newCust, phone: e.target.value })} inputMode="tel" /></label></div>
+              <div className="no-row"><button type="button" className="btn" onClick={() => setNewCust(null)}>Cancel</button><button type="button" className="btn btn-red" disabled={newCust.name.trim().length < 2} onClick={addCustomer}>Add customer</button></div>
+            </div>}
+          </section>
           <div className="no-tabs" role="tablist">{tabs.map(([k, n, t, d, c]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 

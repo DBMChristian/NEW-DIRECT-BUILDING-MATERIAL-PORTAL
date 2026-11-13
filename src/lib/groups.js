@@ -11,7 +11,8 @@ const num = (s) => Number((/(\d+)/.exec(String(s || '')) || [])[1] || 9999);
 export const WP_GROUPS = ['Pods', 'Custom', 'Accessories', 'Additional charges'];
 export function waffleGroup(p) {
   const c = String(p.code || '').toUpperCase(), n = String(p.name || '').toUpperCase();
-  if (isCharge(p) || /^(WPDEL|WPENVIRO|WPSB|FUEL ?LEVY|WP\/RESTOCKING)$/.test(c)) return 'Additional charges';
+  if (c === 'WPSB') return 'Accessories';   /* scrap bags: extra ones are bought as an item */
+  if (isCharge(p) || /^(WPDEL|WPENVIRO|FUEL ?LEVY|WP\/RESTOCKING)$/.test(c)) return 'Additional charges';
   if (/^EPS/.test(c) || /CUSTOM/.test(n)) return 'Custom';
   if (/^WP\d|^WPSP\d/.test(c) || /\bPOD\b/.test(n) && !/TRI ?POD|RAIL|SPACER/.test(n)) return 'Pods';
   return 'Accessories';

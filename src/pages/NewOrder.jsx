@@ -156,7 +156,7 @@ export default function NewOrder() {
   const openPlan = async (f) => { const { data } = await supabase.storage.from('order-files').createSignedUrl(f.path, 300); if (data?.signedUrl) window.open(data.signedUrl, '_blank', 'noopener'); };
 
   /* products to pick from: items only (the form adds the charges itself) */
-  const pickable = useMemo(() => products.filter((p) => p.in_xero && p.active && p.sub_category !== 'additional_charge' && !FORM_CHARGES.includes(String(p.code).toUpperCase())), [products]);
+  const pickable = useMemo(() => products.filter((p) => p.in_xero && p.active && (p.sub_category !== 'additional_charge' || String(p.code).toUpperCase() === 'WPSB') && !FORM_CHARGES.includes(String(p.code).toUpperCase())), [products]);
   const shown = useMemo(() => { const t = q.trim().toLowerCase();
     if (t.length >= 2) return pickable.filter((p) => (!cat || p.category === cat) && (p.code + ' ' + p.name).toLowerCase().includes(t)).slice(0, 30);
     if (cat) return pickable.filter((p) => p.category === cat).sort((a, b) => a.name.localeCompare(b.name));   /* a material picked: all of it */
@@ -164,7 +164,7 @@ export default function NewOrder() {
   const catCount = (c) => pickable.filter((p) => p.category === c).length;
   const add = (p) => {
     const c = p.category || 'Others', k0 = key();
-    setLines((ls) => { const ex = ls.find((l) => l.product_id === p.id); if (ex) return ls.map((l) => (l === ex ? { ...l, qty: Number(l.qty) + 1 } : l));
+    setLines((ls) => { const ex = ls.find((l) => l.product_id === p.id); if (ex) return ls.map((l) => (l === ex ? { ...l, qty: Number(l.qty) + 1 } : l));   /* extra WPSB bought: a line of its own, apart from the free ones */
       const pr = priceFor(p); const nl = { key: k0, product_id: p.id, code: p.code, name: p.name, baseName: p.name, unit: p.unit || 'each', category: c, qty: 1, price: pr, list: pr, reason: '', eps: {}, cut: {}, desc: '' }; if (cutWidth(nl)) nl.qty = 0; return [...ls, nl]; });
     /* arranged loads and POs: a new product goes on the first load of its material (else the first), and its supplier's PO */
     if (loadsHand) setLoadsHand((Ls) => { if (!Ls.length) return [{ ...blankLoad(1), items: { [k0]: 1 } }]; const i = Math.max(0, Ls.findIndex((L) => Object.keys(L.items).some((k) => lines.find((l) => l.key === k)?.category === c)));
@@ -175,7 +175,7 @@ export default function NewOrder() {
   /* cost from Xero (the product's purchase price), and the profit on it */
   const prodById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const unitCost = (x) => Number((x.product_id ? prodById.get(x.product_id) : byCode.get(String(x.code || '').toLowerCase()))?.xero_cost_price || 0);
-  const costOf = (x) => r2(unitCost(x) * (Number(x.qty) || 0));
+  const costOf = (x) => (x.free ? 0 : r2(unitCost(x) * (Number(x.qty) || 0)));   /* the free scrap bags cost nothing */
   const pct = (profit, amount) => (amount > 0 ? Math.round((profit / amount) * 1000) / 10 : 0);
   const profitCells = (amount, cost, off) => { if (off) return <><td className="r no-cost">—</td><td className="r">—</td><td className="r">—</td></>; const pr = r2(amount - cost);
     return <><td className="r no-cost">{cost ? cash(cost) : <span className="no-nocost" title="No cost in Xero">—</span>}</td><td className={'r no-pf' + (pr < 0 ? ' neg' : '')}>{cash(pr)}</td><td className={'r no-pf' + (pr < 0 ? ' neg' : '')}>{pct(pr, amount)}%</td></>; };

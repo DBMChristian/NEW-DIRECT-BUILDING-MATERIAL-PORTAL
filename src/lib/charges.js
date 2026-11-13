@@ -17,7 +17,8 @@ export const SCRAP_SOURCE = ['EPS-C', 'EPS- Circular', 'WPSP175', 'WPSP300', 'WP
 export const PLANTS = ['', 'Boral Construction Materials Group Limited', 'Concrite Pty Ltd', 'HY-TEC INDUSTRIES PTY LTD', 'Heidelberg Materials Australia Pty Ltd', 'Holcim', 'LINEKING PTY LTD', 'Hanson Construction Materials Pty Ltd'];
 const CRPROD_PLANTS = ['', 'Boral Construction Materials Group Limited', 'Concrite Pty Ltd', 'HY-TEC INDUSTRIES PTY LTD', 'Heidelberg Materials Australia Pty Ltd', 'Holcim'];
 export const CON_CHARGES = ['CRTRANS', 'CRPROD', 'CRSUR', 'CRTEST3C', 'CR/COLOUR', 'CR/Washout'];
-export const FORM_CHARGES = ['IMPC', 'WPDEL', 'WPENVIRO', 'WPSB', ...CON_CHARGES];
+/* the charges the form adds itself (not picked by hand); WPSB is also an item: extra bags are bought at their price */
+export const FORM_CHARGES = ['IMPC', 'WPDEL', 'WPENVIRO', ...CON_CHARGES];
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const roundHrs = (h) => { const w = Math.floor(h), d = Number((h - w).toFixed(2)); return d <= 0.24 ? w : d <= 0.44 ? w + 0.5 : w + 1; };
 export const scrapBags = (pods) => (!pods || pods <= 0 ? 0 : pods <= 79 ? 1 : Math.floor((pods - 80) / 40) + 2);
@@ -43,7 +44,7 @@ export function chargesFor(cat, lines, load, ctx) {
     if (a.scrap === 'yes') {
       out.push({ key: 'wpenviro', code: 'WPENVIRO', name: 'Environmental levy', unit: 'each', qty: 1, price: 90 });
       const pods = goods.filter((l) => SCRAP_SOURCE.some((c) => c.toLowerCase() === String(l.code || '').toLowerCase())).reduce((s, l) => s + (Number(l.qty) || 0), 0);
-      const bags = scrapBags(pods); if (bags) out.push({ key: 'wpsb', code: 'WPSB', name: 'Scrap bags (free)', unit: 'bag', qty: bags, price: 0 });
+      const bags = scrapBags(pods); if (bags) out.push({ key: 'wpsb', code: 'WPSB', name: 'Scrap bags (free)', unit: 'bag', qty: bags, price: 0, free: true });
     }
   }
   if (cat === 'Concrete') {

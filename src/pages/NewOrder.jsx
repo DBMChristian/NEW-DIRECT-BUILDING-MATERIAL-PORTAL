@@ -368,8 +368,8 @@ export default function NewOrder() {
   /* ---------- the draft: saved as you go ---------- */
   const busyRef = useRef(false);
   const placedRef = useRef(false);
-  const save = async () => {
-    if (placedRef.current) return o.id;   /* the order is placed: the draft is not saved over it */
+  const save = async (force) => {
+    if (placedRef.current && !force) return o.id;   /* the order is placed: the draft is not saved over it */
     if (!o.customer && !lines.length) return o.id;
     if (busyRef.current) return o.id; busyRef.current = true;
     try {
@@ -377,6 +377,7 @@ export default function NewOrder() {
         contact_name: o.contact_name, contact_phone: phoneOut(o), email: o.email, their_po: o.their_po, instructions: o.instructions, subtotal: sub, gst, total, updated_at: new Date().toISOString() };
       let id = o.id;
       if (!id) { const r = await supabase.from('orders').insert({ ...head, created_by: staff.email, created_by_name: staff.name || staff.email.split('@')[0] }).select('id').single(); if (r.error) throw r.error; id = r.data.id; setO((x) => ({ ...x, id })); }
+      else if (force && view) { const { kind, ...h } = head; void kind; const r = await supabase.from('orders').update(h).eq('id', id).select('id'); if (r.error) throw r.error; }   /* an edit of a placed order: its number and status stay */
       else { const r = await supabase.from('orders').update(head).eq('id', id).eq('status', 'draft').select('id'); if (r.error) throw r.error;
         /* placed (or no longer a draft): never touch it again from the form (13 Nov 2026) */
         if (!r.data?.length) { placedRef.current = true; return id; } }
@@ -388,7 +389,7 @@ export default function NewOrder() {
       const chId = {};
       if (impc) { const r = await supabase.from('order_lines').insert({ order_id: id, product_id: byCode.get('impc')?.id || null, code: 'IMPC', name: impc.name, unit: 'charge', qty: 1, price: impc.price, list_price: impc.price, is_charge: true, charge_key: 'impc', sort: 99 }).select('id').single(); if (r.error) throw r.error; chId['|impc'] = r.data.id; }
       for (const [i, x] of loadCharges.entries()) { const L = x.L;
-        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: effAns(L), status: o.customer?.on_hold ? 'on_hold' : 'pending', sort: i }).select('id').single();
+        const ld = await supabase.from('order_loads').insert({ order_id: id, category: x.cats.join(', '), fulfil: L.fulfil, site_address: L.fulfil === 'delivery' ? L.site || '' : '', want_date: L.date || null, want_time: L.time || 'Any time', answers: effAns(L), status: L.status || (o.customer?.on_hold ? 'on_hold' : 'pending'), booked_date: L.booked_date || null, booked_time: L.booked_time || null, sort: i }).select('id').single();
         if (ld.error) throw ld.error;
         const its = x.inLoad.map((l) => ({ load_id: ld.data.id, line_id: lineId[l.key], qty: l.qty }));
         if (its.length) { const r = await supabase.from('order_load_items').insert(its); if (r.error) throw r.error; }
@@ -396,7 +397,7 @@ export default function NewOrder() {
         if (chs.length) { const r = await supabase.from('order_lines').insert(chs).select('id, charge_key'); if (r.error) throw r.error; (r.data || []).forEach((row) => { chId[L.uid + '|' + row.charge_key] = row.id; }); }
       }
       for (const [i, P] of pos.entries()) {
-        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', fulfil: poFulfil(P), notes: P.notes || '', send: P.send ?? null, sort: i }).select('id').single();
+        const pr = await supabase.from('order_pos').insert({ order_id: id, supplier_id: P.supplier_id || null, supplier_name: P.supplier || '', portal: P.portal || '', deliver_to: P.deliverTo || 'site', fulfil: poFulfil(P), notes: P.notes || '', send: P.send ?? null, sort: i, ...(view ? { number: P.number || null, status: P.status || 'to_send', supplier_ref: P.supplier_ref || null, portal_error: P.portal_error || null } : {}) }).select('id').single();
         if (pr.error) throw pr.error;
         const ks = Object.keys(P.items).filter((k) => Number(P.items[k]) > 0);
         const its = [...ks.map((k) => ({ po_id: pr.data.id, line_id: lineId[k], qty: Number(P.items[k]), unit_cost: unitCost(lineOf(k)) })),
@@ -485,6 +486,22 @@ export default function NewOrder() {
   const [bookAt, setBookAt] = useState({});   /* the day and time typed for booking a load */
   const [noteText, setNoteText] = useState('');
   const reopen = () => openDraft(o.id);
+  const [editPart, setEditPart] = useState(null);   /* 'so' | 'po' | 'load' being edited */
+  const startEdit = (part) => run('edit', async () => { const { error } = await supabase.rpc('begin_edit', { p_id: o.id }); if (error) throw error; setEditPart(part); setTab(part); }, null);
+  const cancelEdit = async () => { setEditPart(null); await supabase.rpc('end_edit', { p_id: o.id, p_part: '', p_save: false }); reopen(); };
+  const saveEdit = async () => {
+    if (missingAll.length) { setActMsg({ bad: true, text: 'Not saved: ' + missingAll[0] }); goTo(missingAll[0]); return; }
+    setAct('saveedit'); setActMsg(null);
+    try {
+      await save(true);
+      const { data, error } = await supabase.rpc('end_edit', { p_id: o.id, p_part: editPart, p_save: true }); if (error) throw error;
+      const res = [];
+      for (const qid of data?.xero || []) { const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); res.push(r.data?.ok ? 'ok' : 'failed'); }
+      setEditPart(null);
+      setActMsg({ text: 'Changes saved.' + (res.length ? ' Xero: ' + res.filter((x) => x === 'ok').length + ' of ' + res.length + ' updated' + (res.includes('failed') ? ' (the rest wait in Admin › Not yet in Xero).' : '.') : '') + (editPart !== 'load' && pos.some((P) => P.send) ? ' Resend the PO emails if the supplier needs the changes.' : '') });
+    } catch (e) { setActMsg({ bad: true, text: 'Not saved: ' + (e.message || e) }); }
+    setAct(null); reopen();
+  };
   const run = async (name, fn, okText) => { setAct(name); setActMsg(null); try { await fn(); if (okText) setActMsg({ text: okText }); } catch (e) { setActMsg({ bad: true, text: e.message || String(e) }); } setAct(null); reopen(); };
   const bookLoad = (L) => run('book' + L.uid, async () => { const b = bookAt[L.uid] || {}, d = b.date || L.date, t = b.time || L.time || 'Any time';
     if (!d) throw new Error('Choose the day to book load ' + L.n + '.');
@@ -603,6 +620,8 @@ export default function NewOrder() {
   const soCats = CATS.filter((c) => lines.some((l) => l.category === c));
   const tabs = [['so', '1', 'Build SO', 'What the customer buys · one invoice', lines.length ? lines.length + ' product' + (lines.length === 1 ? '' : 's') : 'empty'],
     ['po', '2', 'Build PO', 'What we order · one per supplier', pos.length + ' PO' + (pos.length === 1 ? '' : 's')], ['load', '3', 'Build Load', 'How it goes out · trucks and pick-ups', loads.length + ' load' + (loads.length === 1 ? '' : 's')]];
+  /* a placed order: the parts by their names (no "Build"), each with its Edit button */
+  if (view) { tabs[0][2] = 'Sales order'; tabs[0][3] = 'What the customer buys'; tabs[1][2] = 'Purchase orders'; tabs[1][3] = 'What Direct orders'; tabs[2][2] = 'Loads'; tabs[2][3] = 'How it goes out'; }
 
   return (
     <>
@@ -670,7 +689,13 @@ export default function NewOrder() {
           <div className="no-tabs" role="tablist">{tabs.map(([k, n, t, d, c]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 
-          <fieldset className="no-fs" disabled={view}>
+          {view && o.status !== 'cancelled' && (() => { const lab = { so: 'SO', po: 'PO', load: 'Load' }[tab]; return editPart === tab
+            ? <div className="no-editbar on"><b>Editing the {tab === 'so' ? 'sales order' : tab === 'po' ? 'purchase orders' : 'loads'}</b>
+                <span>Saved changes go to the order and its Xero upload{tab === 'load' ? '' : '; PO emails can then be resent'}. DBM's portals are not changed from here.</span>
+                <button type="button" className="btn" disabled={act === 'saveedit'} onClick={cancelEdit}>Cancel</button><button type="button" className="btn btn-red" disabled={act === 'saveedit'} onClick={saveEdit}>{act === 'saveedit' ? 'Saving…' : 'Save changes'}</button>
+                {missingAll.length > 0 && <div className="no-misslist">{missingAll.map((t) => <button type="button" key={t} className="no-miss no-go" onClick={() => goTo(t)}>{t} <i>→</i></button>)}</div>}</div>
+            : <div className="no-editbar"><span>Nothing here can be changed until you press Edit.</span><button type="button" className="btn" disabled={!!editPart || !!act} onClick={() => startEdit(tab)}>Edit {lab}</button></div>; })()}
+          <fieldset className="no-fs" disabled={view && editPart !== tab}>
           {tab === 'so' && <>
           <section className="no-card" aria-label="Products" id="go-products">
             <div className="no-ct">Products</div>
@@ -809,7 +834,7 @@ export default function NewOrder() {
           </fieldset>
         </div>
 
-        {!view && askDelivery && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-labelledby="dl-t">
+        {(!view || editPart) && askDelivery && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-labelledby="dl-t">
           <div className="no-prevbox no-askd"><div className="no-prevh"><b id="dl-t">A delivery was added</b></div>
             <div className="no-askb"><p><b>Load {askDelivery.L.n}</b> · {askDelivery.cats.join(', ')} is another delivery. It goes on the customer's sales order (the delivery quantity goes up).</p>
               <p>Who delivers it?</p>

@@ -321,7 +321,7 @@ export default function NewOrder() {
     const cm = lines.map(customMissing).find(Boolean); if (cm) return 'Build SO: ' + cm;
     const bad = lines.find((l) => Math.abs(l.price - l.list) >= 0.005 && l.reason.trim().length < 3) || allCharges.find((x) => !x.off && Math.abs(x.price - x.list) >= 0.005 && x.reason.trim().length < 3);
     if (bad) return 'Build SO: give the reason for the changed price of ' + bad.name + '.';
-    for (const l of lines) { const onLoads = loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0); if (Math.abs(onLoads - l.qty) > 1e-6) return 'Build Load: ' + l.name + ' has ' + onLoads + ' of ' + l.qty + ' on loads.'; }
+    for (const l of lines) { const onLoads = loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0); if (onLoads - l.qty > 1e-6) return 'Build Load: ' + l.name + ' has ' + onLoads + ' on loads but only ' + l.qty + ' sold.'; }
     for (const L of loads) { if (!Object.values(L.items).some((v) => Number(v) > 0)) return 'Build Load: load ' + L.n + ' is empty: remove it.';
       if (L.fulfil === 'delivery' && !String(L.site || '').trim()) return 'Build Load: enter the site address of load ' + L.n + '.';
       if (o.kind === 'order' && !L.date) return 'Build Load: choose the day of load ' + L.n + '.'; }
@@ -670,7 +670,19 @@ export default function NewOrder() {
                       <td><select className="no-move" value="" onChange={(e) => e.target.value && moveToLoad(l.key, L.uid, e.target.value)}><option value="">Move…</option>{loads.filter((x) => x.uid !== L.uid).map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}</select></td></tr>))}
                 </tbody></table></div>
               </div>); })}
-            {lines.filter((l) => Math.abs(loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0) - l.qty) > 1e-6).map((l) => <p key={l.key} className="no-miss">{l.name}: {loads.reduce((s, L) => s + qtyIn(L.items, l.key), 0)} of {l.qty} on loads.</p>)}
+            {(() => { const left = lines.map((l) => ({ l, rest: r2(l.qty - loads.reduce((t, L) => t + qtyIn(L.items, l.key), 0)) })).filter((x) => x.rest > 1e-6);
+              const over = lines.filter((l) => loads.reduce((t, L) => t + qtyIn(L.items, l.key), 0) - l.qty > 1e-6);
+              return <>
+                {over.map((l) => <p key={l.key} className="no-miss">{lineName(l)}: more on loads than sold ({l.qty}).</p>)}
+                {left.length > 0 && <div className="no-grp"><div className="no-gh" style={{ background: '#57534E' }}>Not on a load yet <small>optional: to go later, or put it on a load now</small></div>
+                  <div className="no-tw"><table className="no-t"><thead><tr><th>Product</th><th>Sold</th><th>Not on a load</th><th>Put on</th></tr></thead><tbody>
+                    {left.map(({ l, rest }) => <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code}</small></td><td>{l.qty} {l.unit}</td><td><b>{rest}</b></td>
+                      <td><select className="no-move" value="" onChange={(e) => { const to = e.target.value; if (!to) return;
+                        if (to === 'new') setLoadsHand((Ls) => { const base = Ls || loads.map((L) => ({ ...L, auto: undefined })); return [...base, { ...blankLoad(base.length + 1, headLoad), items: { [l.key]: rest } }]; });
+                        else setLoadQty(to, l.key, r2(qtyIn((loads.find((x) => x.uid === to) || {}).items, l.key) + rest)); }}>
+                        <option value="">Put on…</option>{loads.map((x) => <option key={x.uid} value={x.uid}>Load {x.n}</option>)}<option value="new">A new load</option></select></td></tr>)}
+                  </tbody></table></div></div>}
+              </>; })()}
             {lines.length > 0 && <button type="button" className="btn" onClick={addLoad}>+ Add a load</button>}
           </section>}
         </div>

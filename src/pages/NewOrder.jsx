@@ -158,8 +158,8 @@ export default function NewOrder() {
   const pickable = useMemo(() => products.filter((p) => p.in_xero && p.active && p.sub_category !== 'additional_charge' && !FORM_CHARGES.includes(String(p.code).toUpperCase())), [products]);
   const shown = useMemo(() => { const t = q.trim().toLowerCase();
     if (t.length >= 2) return pickable.filter((p) => (!cat || p.category === cat) && (p.code + ' ' + p.name).toLowerCase().includes(t)).slice(0, 30);
-    if (cat && all) return pickable.filter((p) => p.category === cat).sort((a, b) => a.name.localeCompare(b.name));
-    return []; }, [pickable, q, cat, all]);
+    if (cat) return pickable.filter((p) => p.category === cat).sort((a, b) => a.name.localeCompare(b.name));   /* a material picked: all of it */
+    return []; }, [pickable, q, cat]);
   const catCount = (c) => pickable.filter((p) => p.category === c).length;
   const add = (p) => {
     const c = p.category || 'Others', k0 = key();
@@ -414,9 +414,8 @@ export default function NewOrder() {
           {tab === 'so' && <>
           <section className="no-card" aria-label="Products">
             <div className="no-ct">Products</div>
-            <div className="no-cats">{CATS.filter((c) => catCount(c)).map((c) => <button key={c} type="button" className={'no-cat' + (cat === c ? ' on' : '')} style={{ '--c': COLOR[c] }} onClick={() => { setCat(cat === c ? '' : c); setAll(false); }}><i />{c}</button>)}</div>
+            <div className="no-cats">{CATS.filter((c) => catCount(c)).map((c) => <button key={c} type="button" className={'no-cat' + (cat === c ? ' on' : '')} style={{ '--c': COLOR[c] }} onClick={() => setCat(cat === c ? '' : c)}><i />{c}</button>)}</div>
             <input type="search" className="no-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={cat ? 'Search ' + cat + ' by name or code…' : 'Search a product by name or code…'} aria-label="Search a product" />
-            {cat && q.trim().length < 2 && <button type="button" className={'no-all' + (all ? ' on' : '')} onClick={() => setAll(!all)}><span>{all ? '▾' : '▸'} Show all {cat} products</span><small>{catCount(cat)}</small></button>}
             {shown.length > 0 && <div className="no-res">{(() => {
               const row = (p) => { const rt = routeOf(p.category); return (
                 <div key={p.id} className="no-ri"><div><b>{p.name}</b><small>{p.code} · {p.unit || 'each'}</small></div>

@@ -71,8 +71,10 @@ export default function Home() {
   const [openEnq, setOpenEnq] = useState(null);
 
   const load = async () => {
-    const c = await supabase.from('customers').select('id, name, email, phone, mobile, xero_awaiting_payment, xero_awaiting_approval, xero_overdue, credit_limit, terms').eq('terms', 'cod').gt('xero_awaiting_payment', 0).order('xero_awaiting_payment', { ascending: false });
-    setCod(c.data || []);
+    /* COD balance: every unpaid invoice of a COD customer (from Xero), oldest first */
+    const [iv, cs] = await Promise.all([supabase.from('xero_invoices').select('*').order('invoice_date', { ascending: true }), supabase.from('customers').select('xero_contact_id, name, terms, mobile, phone')]);
+    const byId = new Map((cs.data || []).map((c) => [String(c.xero_contact_id), c]));
+    setCod((iv.data || []).filter((x) => (byId.get(String(x.xero_contact_id)) || {}).terms !== 'account').map((x) => ({ ...x, customer: byId.get(String(x.xero_contact_id)) })));
     const e = await supabase.from('enquiries').select('*').in('status', ['new', 'working']).order('created_at', { ascending: false });
     setEnq(e.data || []);
   };
@@ -92,8 +94,10 @@ export default function Home() {
     return () => clearTimeout(h);
   }, [q]);
 
-  const codTotal = useMemo(() => (cod || []).reduce((a, c) => a + Number(c.xero_awaiting_payment || 0), 0), [cod]);
-  const codOver = useMemo(() => (cod || []).reduce((a, c) => a + Number(c.xero_overdue || 0), 0), [cod]);
+  const todayYmd = ymd(new Date());
+  const isOver = (x) => x.status === 'AUTHORISED' && x.due_date && x.due_date < todayYmd;
+  const codTotal = useMemo(() => (cod || []).reduce((a, x) => a + Number(x.amount_due || 0), 0), [cod]);
+  const codOver = useMemo(() => (cod || []).filter(isOver).reduce((a, x) => a + Number(x.amount_due || 0), 0), [cod]);
   const newEnq = (enq || []).filter((e) => e.status === 'new').length;
   const take = async (e) => { const { error } = await supabase.from('enquiries').update({ status: e.status === 'new' ? 'working' : e.status, taken_by: staff.email, taken_by_name: staff.name || staff.email.split('@')[0], updated_at: new Date().toISOString() }).eq('id', e.id); if (!error) load(); };
   const shift = (n) => { const d = new Date(day); d.setDate(d.getDate() + n * (range === 'week' ? 7 : 1)); setDay(d); };
@@ -149,11 +153,13 @@ export default function Home() {
               <Tabs value={dtab} set={setDtab} counts={{ all: 0, delivery: 0, pickup: 0 }} />
               <div className="hm-list"><div className="hm-empty">No booked orders {range === 'week' ? 'this week' : 'on ' + dayName(day)}.</div></div>
             </Col>
-            <Col dot="#B91C1C" title="COD balance" sub={cod === null ? 'Loading…' : cash(codTotal) + ' owing' + (codOver ? ' · ' + cash(codOver) + ' overdue' : '')} n={cod ? cod.length : null}>
+            <Col dot="#B91C1C" title="COD balance" sub={cod === null ? 'Loading…' : cash(codTotal) + ' owing on ' + cod.length + ' order' + (cod.length === 1 ? '' : 's') + (codOver ? ' · ' + cash(codOver) + ' overdue' : '')} n={cod ? cod.length : null}>
               <div className="hm-list hm-rows">
-                {cod !== null && !cod.length && <div className="hm-empty">No COD customer owes anything.</div>}
-                {(cod || []).slice(0, codAll ? 999 : 6).map((c) => (
-                  <div key={c.id} className="hm-line"><div><b>{c.name}</b><small>{Number(c.xero_overdue) > 0 ? <span className="hm-red">{cash(c.xero_overdue)} overdue</span> : 'Not overdue yet'}{c.mobile || c.phone ? ' · ' + (c.mobile || c.phone) : ''}</small></div><span className={'hm-amt' + (Number(c.xero_overdue) > 0 ? ' hm-red' : '')}>{cash(c.xero_awaiting_payment)}</span></div>
+                {cod !== null && !cod.length && <div className="hm-empty">No unpaid COD orders.</div>}
+                {(cod || []).slice(0, codAll ? 999 : 6).map((x) => (
+                  <div key={x.xero_invoice_id} className="hm-line"><div><b>{x.customer_name}</b>
+                    <small>{x.number}{x.reference ? ' · ' + x.reference : ''} · {x.invoice_date ? ago(x.invoice_date + 'T00:00:00') + ' old' : ''}{x.status === 'SUBMITTED' ? <span className="hm-appr"> · awaiting approval</span> : isOver(x) ? <span className="hm-red"> · overdue</span> : ''}</small></div>
+                    <span className={'hm-amt' + (isOver(x) ? ' hm-red' : '')}>{cash(x.amount_due)}</span></div>
                 ))}
                 {(cod || []).length > 6 && <button type="button" className="link hm-more" onClick={() => setCodAll(!codAll)}>{codAll ? 'Show fewer' : 'See all ' + cod.length}</button>}
               </div>

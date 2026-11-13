@@ -202,6 +202,8 @@ Deno.serve(async (req) => {
         let balances = "";
         try {
           const per = new Map<string, { appr: number; due: number; over: number; inv: number }>();
+          const open: any[] = [];   /* each unpaid invoice, for Home > COD balance */
+          const day = (v: unknown) => { const m = /\/Date\((\d+)/.exec(String(v || "")); return m ? new Date(Number(m[1])).toISOString().slice(0, 10) : (/^\d{4}-\d{2}-\d{2}/.test(String(v || "")) ? String(v).slice(0, 10) : null); };
           const today = new Date().toISOString().slice(0, 10);
           for (let page = 1; page <= 100; page++) {
             const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices?summaryOnly=true&pageSize=1000&page=" + page + "&Statuses=SUBMITTED,AUTHORISED,PAID&where=" + encodeURIComponent('Type=="ACCREC"'),
@@ -216,6 +218,9 @@ Deno.serve(async (req) => {
               if (iv.Status === "SUBMITTED") b.appr += total;
               if (iv.Status === "AUTHORISED") { b.due += due; const dd = String(iv.DueDateString || iv.DueDate || "").slice(0, 10); if (dd && /^\d{4}-/.test(dd) && dd < today) b.over += due; }
               if (iv.Status === "AUTHORISED" || iv.Status === "PAID") b.inv += total;
+              if ((iv.Status === "AUTHORISED" || iv.Status === "SUBMITTED") && (iv.Status === "SUBMITTED" ? total : due) > 0)
+                open.push({ xero_invoice_id: iv.InvoiceID, number: String(iv.InvoiceNumber || ""), reference: String(iv.Reference || ""), xero_contact_id: id, customer_name: String(iv.Contact?.Name || ""),
+                  status: iv.Status, invoice_date: day(iv.DateString || iv.Date), due_date: day(iv.DueDateString || iv.DueDate), total, amount_due: iv.Status === "SUBMITTED" ? total : due, synced_at: new Date().toISOString() });
               per.set(id, b);
             }
             if (got.length < 1000) break;
@@ -229,6 +234,10 @@ Deno.serve(async (req) => {
               await admin().from("customers").update({ ...v, xero_balances_at: at }).eq("id", c.id);
           }
           await admin().from("customers").update({ xero_balances_at: at }).is("xero_balances_at", null);
+          for (let i = 0; i < open.length; i += 500) { const u = await admin().from("xero_invoices").upsert(open.slice(i, i + 500), { onConflict: "xero_invoice_id" }); if (u.error) throw new Error("Saving the invoices: " + u.error.message); }
+          const keep = open.map((x) => x.xero_invoice_id);
+          const del = keep.length ? await admin().from("xero_invoices").delete().not("xero_invoice_id", "in", "(" + keep.join(",") + ")") : await admin().from("xero_invoices").delete().not("xero_invoice_id", "is", null);
+          if (del.error) throw new Error("Tidying the invoices: " + del.error.message);
         } catch (e) { balances = e instanceof Error ? e.message : String(e); }
         await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length, error: balances ? balances.slice(0, 500) : null }).eq("id", runId);
         return { ok: true, contacts: rows.length, added, updated, gone: gone.length, balances_error: balances || null };

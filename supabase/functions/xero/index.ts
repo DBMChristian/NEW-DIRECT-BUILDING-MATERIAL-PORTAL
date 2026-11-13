@@ -3,6 +3,8 @@
 //                                      the one-time state instead), then back to the portal.
 //   POST { action: "status" }          connected or not, to which organisation, the last sync
 //   POST { action: "connect", return_to }   the Xero sign-in address to open
+//   POST { action: "sync_contacts" }   pulls every Xero contact into customers (Direct's terms, price list, notes stay)
+//   POST { action: "sync_all" }        both (the every-30-minutes job)
 //   POST { action: "sync_items" }      pulls every Xero item into products (codes, names, descriptions, Xero's prices);
 //                                      Direct's own columns (category, unit, price lists) are never changed by it.
 // Only admins (staff.role = admin) can connect or sync; anyone signed in on the staff list can read the status.
@@ -14,7 +16,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 const env = (k: string) => (Deno.env.get(k) ?? "").trim();
-const SCOPES = "openid profile email offline_access accounting.settings.read";
+const SCOPES = "openid profile email offline_access accounting.settings.read accounting.contacts.read";   /* contacts: Admin > Customers (13 Nov 2026) */
 const admin = () => createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false }, db: { schema: "public" } });
 const priv = admin;   /* the Xero tables are in public, readable only with the service role (RLS, no policies) */
 
@@ -86,7 +88,8 @@ Deno.serve(async (req) => {
 
     if (action === "status") {
       const { data: l } = await priv().from("xero_link").select("tenant_name, connected_by, connected_at, refresh_token").eq("id", 1).maybeSingle();
-      const { data: last } = await admin().from("xero_sync_runs").select("*").eq("kind", "items").order("id", { ascending: false }).limit(1).maybeSingle();
+      const kind = body?.kind === "contacts" ? "contacts" : "items";
+      const { data: last } = await admin().from("xero_sync_runs").select("*").eq("kind", kind).order("id", { ascending: false }).limit(1).maybeSingle();
       return json({ connected: !!l?.refresh_token, tenant: l?.tenant_name || null, connected_by: l?.connected_by || null, connected_at: l?.connected_at || null, last_sync: last || null, setup: !!(env("XERO_CLIENT_ID") && env("XERO_CLIENT_SECRET") && env("XERO_REDIRECT_URI")) });
     }
     if (who.role !== "admin") return json({ error: "Only an admin can do that" }, 403);
@@ -102,8 +105,8 @@ Deno.serve(async (req) => {
       return json({ url: u.toString() });
     }
 
-    if (action === "sync_items") {
-      const run = await admin().from("xero_sync_runs").insert({ kind: "items", by_email: who.email }).select("id").single();
+    const syncItems = async () => {
+      const run = await admin().from("xero_sync_runs").insert({ kind: "items", by_email: who!.email }).select("id").single();
       const runId = run.data?.id;
       try {
         const l = await access();
@@ -134,13 +137,59 @@ Deno.serve(async (req) => {
         const gone = (have || []).filter((p: any) => p.xero_item_id && !seen.has(p.id) && !rows.some((x) => x.xero_item_id === p.xero_item_id)).map((p: any) => p.id);
         if (gone.length) await admin().from("products").update({ in_xero: false, updated_at: now }).in("id", gone);
         await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length }).eq("id", runId);
-        return json({ ok: true, items: rows.length, added, updated, gone: gone.length });
+        return { ok: true, items: rows.length, added, updated, gone: gone.length };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error: msg.slice(0, 500) }).eq("id", runId);
-        return json({ error: msg }, 502);
+        return { error: msg };
       }
-    }
+        };
+    /* Xero contacts into customers: the Xero columns only (Direct's terms, price list and notes stay), in blocks of 500 */
+    const syncContacts = async () => {
+      const run = await admin().from("xero_sync_runs").insert({ kind: "contacts", by_email: who!.email }).select("id").single();
+      const runId = run.data?.id;
+      try {
+        const l = await access();
+        const all: any[] = [];
+        for (let page = 1; page <= 50; page++) {
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Contacts?includeArchived=true&pageSize=1000&page=" + page, { headers: { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id, Accept: "application/json" } });
+          const j = await r.json().catch(() => ({}));
+          if (r.status === 401 || r.status === 403) throw new Error("Xero did not allow reading contacts: press Reconnect on this page once (customers need one more permission).");
+          if (!r.ok) throw new Error("Xero contacts: " + (j?.Detail || j?.Message || j?.Title || r.status));
+          const got: any[] = Array.isArray(j?.Contacts) ? j.Contacts : [];
+          all.push(...got);
+          if (got.length < 1000) break;
+        }
+        const phone = (c: any, t: string) => { const p = (c.Phones || []).find((x: any) => x.PhoneType === t); return p ? [p.PhoneCountryCode, p.PhoneAreaCode, p.PhoneNumber].filter(Boolean).join(" ").trim() : ""; };
+        const addr = (c: any) => (c.Addresses || []).find((x: any) => x.AddressType === "STREET" && (x.AddressLine1 || x.City)) || (c.Addresses || []).find((x: any) => x.AddressLine1 || x.City) || {};
+        const now = new Date().toISOString();
+        const rows = all.filter((c) => c.ContactID).map((c) => { const a = addr(c); return {
+          xero_contact_id: c.ContactID, name: String(c.Name || "").trim(), first_name: String(c.FirstName || ""), last_name: String(c.LastName || ""),
+          email: String(c.EmailAddress || "").trim().toLowerCase(), phone: phone(c, "DEFAULT"), mobile: phone(c, "MOBILE"),
+          street: [a.AddressLine1, a.AddressLine2].filter(Boolean).join(", "), suburb: String(a.City || ""), state: String(a.Region || ""), postcode: String(a.PostalCode || ""),
+          account_number: String(c.AccountNumber || ""), abn: String(c.TaxNumber || ""), is_customer: c.IsCustomer === true, is_supplier: c.IsSupplier === true,
+          xero_status: String(c.ContactStatus || "ACTIVE"), in_xero: true, synced_at: now, updated_at: now }; });
+        const { data: have } = await admin().from("customers").select("id, xero_contact_id");
+        const known = new Set((have || []).map((x: any) => String(x.xero_contact_id)));
+        const added = rows.filter((r) => !known.has(String(r.xero_contact_id))).length, updated = rows.length - added;
+        for (let i = 0; i < rows.length; i += 500) {
+          const u = await admin().from("customers").upsert(rows.slice(i, i + 500), { onConflict: "xero_contact_id" });
+          if (u.error) throw new Error("Saving the customers: " + u.error.message);
+        }
+        const ids = new Set(rows.map((r) => String(r.xero_contact_id)));
+        const gone = (have || []).filter((x: any) => x.xero_contact_id && !ids.has(String(x.xero_contact_id))).map((x: any) => x.id);
+        if (gone.length) await admin().from("customers").update({ in_xero: false, updated_at: now }).in("id", gone);
+        await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, added, updated, gone: gone.length }).eq("id", runId);
+        return { ok: true, contacts: rows.length, added, updated, gone: gone.length };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await admin().from("xero_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error: msg.slice(0, 500) }).eq("id", runId);
+        return { error: msg };
+      }
+    };
+    if (action === "sync_items") { const r = await syncItems(); return json(r, (r as any).error ? 502 : 200); }
+    if (action === "sync_contacts") { const r = await syncContacts(); return json(r, (r as any).error ? 502 : 200); }
+    if (action === "sync_all") { const a = await syncItems(), b = await syncContacts(); return json({ items: a, contacts: b }, (a as any).error || (b as any).error ? 502 : 200); }
     return json({ error: "Unknown action" }, 400);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

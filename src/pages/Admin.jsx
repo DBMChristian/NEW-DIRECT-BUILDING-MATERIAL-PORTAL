@@ -28,8 +28,10 @@ export default function Admin() {
   const [staff, setStaff] = useState(null);
   const [products, setProducts] = useState(null);
   const [suppliers, setSuppliers] = useState(null);
+  const [customers, setCustomers] = useState(null);
   useEffect(() => { supabase.from('products').select('id', { count: 'exact', head: true }).eq('in_xero', true).then(({ count }) => setProducts(count ?? 0)); }, []);
   useEffect(() => { supabase.from('suppliers').select('id', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setSuppliers(count ?? 0)); }, []);
+  useEffect(() => { supabase.from('customers').select('id', { count: 'exact', head: true }).eq('is_customer', true).eq('in_xero', true).then(({ count }) => setCustomers(count ?? 0)); }, []);
   useEffect(() => { supabase.from('staff').select('email', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setStaff(count ?? 0)); }, []);
   return (
     <>
@@ -40,8 +42,7 @@ export default function Admin() {
           <Row to="/admin/suppliers" icon="truck" title="Suppliers" sub="Who Direct orders from, through which portal, and the emails (To and CC)" n={suppliers} unit="suppliers" />
         </Section>
         <Section title="Customers" sub="Who Direct sells to, their account details and the notes the team keeps on them.">
-          <Row icon="building" title="Customers" sub="Companies, contacts, COD or account" soon={7} />
-          <Row icon="note" title="Customer notes" sub="Delivery quirks and account notes, shown on every order" soon={7} />
+          <Row to="/admin/customers" icon="building" title="Customers and notes" sub="Every Xero contact, COD or account, their price list, and the notes shown on every order" n={customers} unit="customers" />
         </Section>
         <Section title="People" sub="Who can sign in to the portal, and what each of them sees.">
           <Row to="/admin/users" icon="users" title="Users" sub="Add people, set roles, switch access on or off" n={staff} unit="active" />

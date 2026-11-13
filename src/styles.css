@@ -664,3 +664,8 @@ tr.pp-off td:not(.pp-actc){opacity:.5}
 .no-si{display:flex;justify-content:space-between;gap:8px;padding:4px 8px;font-size:12px;border-top:1px solid #F5F5F4}
 .no-si span{min-width:0}.no-si small{display:block;font-size:11px;color:#57534E}.no-si b{white-space:nowrap}
 .no-sic{background:#FCFCFB;color:#44403C}
+
+/* minimise or expand a material (13 Nov 2026) */
+.no-fold{border:0;background:rgba(255,255,255,.18);color:#fff;width:22px;height:22px;border-radius:4px;font:inherit;font-size:12px;cursor:pointer;display:grid;place-items:center;flex:none}
+.no-fold:hover{background:rgba(255,255,255,.32)}
+.no-foldall{margin-left:auto;display:flex;gap:14px;font-size:12.5px;font-weight:600}

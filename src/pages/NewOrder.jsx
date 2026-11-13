@@ -56,6 +56,7 @@ export default function NewOrder() {
   const [syncing, setSyncing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [newCust, setNewCust] = useState(null);
+  const [folded, setFolded] = useState({});   /* materials minimised in Build SO */
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
   const [cat, setCat] = useState(''); const [q, setQ] = useState(''); const [all, setAll] = useState(false);
   const [saved, setSaved] = useState(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(null); const [done, setDone] = useState(null);
@@ -429,11 +430,12 @@ export default function NewOrder() {
             {q.trim().length >= 2 && !shown.length && <p className="no-sub">No product matches.</p>}
           </section>
           <section className="no-card" aria-label="On this order">
-            <div className="no-ct">On this order</div>
+            <div className="no-ct">On this order{soCats.length > 1 && <span className="no-foldall"><button type="button" className="link" onClick={() => setFolded(Object.fromEntries(soCats.map((c) => [c, true])))}>Minimise all</button><button type="button" className="link" onClick={() => setFolded({})}>Expand all</button></span>}</div>
             {!lines.length && <p className="no-sub">Nothing yet: pick a material or search, then press Add.</p>}
             {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = allCharges.filter((x) => x.cat === c), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
               <div key={c} className="no-grp">
-                <div className="no-gh" style={{ background: HEAD[c] }}>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small>{(() => { const cs = r2(ls.reduce((t, l) => t + costOf(l), 0) + chs.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sum - cs); return <span className="no-ghp">Profit {cash(pr)} · {pct(pr, sum)}%</span>; })()}</div>
+                <div className="no-gh no-ghb" style={{ background: HEAD[c] }}><button type="button" className="no-fold" aria-expanded={!folded[c]} aria-label={(folded[c] ? 'Expand ' : 'Minimise ') + c} onClick={() => setFolded((f) => ({ ...f, [c]: !f[c] }))}>{folded[c] ? '▸' : '▾'}</button>{c} <small>{ls.length} product{ls.length === 1 ? '' : 's'} · {cash(sum)}</small>{(() => { const cs = r2(ls.reduce((t, l) => t + costOf(l), 0) + chs.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sum - cs); return <span className="no-ghp">Profit {cash(pr)} · {pct(pr, sum)}%</span>; })()}</div>
+                {!folded[c] && <>
                 {c === 'Wafflepods' && catDelivery(c) && questions('Wafflepods', catAnswers(c), (ch) => setCatAns(c, ch))}
                 {c === 'Concrete' && questions('Concrete', catAnswers(c), (ch) => setCatAns(c, ch))}
                 <div className="no-tw"><table className="no-t">
@@ -459,6 +461,7 @@ export default function NewOrder() {
                     {chs.map((x) => chargeRow(x))}
                   </tbody>
                 </table></div>
+                </>}
               </div>); })}
           </section>
           </>}

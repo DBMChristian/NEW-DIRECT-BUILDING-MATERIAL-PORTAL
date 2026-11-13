@@ -512,7 +512,7 @@ export default function NewOrder() {
           </>}
 
           {tab === 'po' && <section className="no-card" aria-label="Build PO">
-            <div className="no-ct">Build PO <small>{posHand ? 'arranged by hand' : 'one PO per supplier, by itself'}</small>{posHand && <button type="button" className="link no-auto" onClick={() => setPosHand(null)}>Back to automatic</button>}</div>
+            <div className="no-ct">Build PO <small>one PO per supplier</small></div>
             {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
             {pos.map((P, i) => (
               <div key={P.uid} className="no-grp">
@@ -539,7 +539,7 @@ export default function NewOrder() {
           </section>}
 
           {tab === 'load' && <section className="no-card" aria-label="Build Load">
-            <div className="no-ct">Build Load <small>{loadsHand ? 'arranged by hand' : 'one load per material, by itself'}</small>{loadsHand && <button type="button" className="link no-auto" onClick={() => setLoadsHand(null)}>Back to automatic</button>}</div>
+            <div className="no-ct">Build Load <small>trucks and pick-ups</small></div>
             {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
             {loadCharges.map(({ L, inLoad, cats, ch }) => { const a = L.answers || {}; return (
               <div key={L.uid} className="no-grp">

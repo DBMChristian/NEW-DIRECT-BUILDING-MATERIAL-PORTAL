@@ -513,9 +513,34 @@ export default function NewOrder() {
   const answerDelivery = (L, by) => setAns(L.uid, { delivered_by: by });
   const deliveredBy = (L) => ((L.answers || {}).delivered_by === 'internal' ? 'internal' : 'supplier');
 
+  /* a message leads to its place (13 Nov 2026): the tab, then the field, PO, load or line it names */
+  const goTo = (raw) => {
+    const t = String(raw || '').replace(/^Not ready:\s*/i, '').replace(/^Warning:\s*/i, '');
+    let tab0 = null, id = null; const n = (re) => (re.exec(t) || [])[1];
+    if (/^Build PO/i.test(t)) { tab0 = 'po';
+      const k = n(/PO (\d+)/i), cat = /waffle/i.test(t) ? 'Wafflepods' : /concrete/i.test(t) ? 'Concrete' : null, sup = (/the supplier of PO (\d+)/i.exec(t) || [])[1];
+      const idx = k || sup || (cat ? pos.findIndex((P) => Object.keys(P.items).some((key) => Number(P.items[key]) > 0 && lineOf(key)?.category === cat)) + 1 : 0) || 1;
+      const P = pos[Number(idx) - 1]; if (P) setFoldedPo((f) => ({ ...f, [P.uid]: false })); id = 'go-po-' + idx; }
+    else if (/^Build Load/i.test(t)) { tab0 = 'load'; id = n(/load (\d+)/i) ? 'go-load-' + n(/load (\d+)/i) : 'go-load-1'; }
+    else if (/^Build SO/i.test(t) || /no price for/i.test(t)) { tab0 = 'so';
+      const code = n(/no price for (\S+)/i); const l = lines.find((x) => t.includes(lineName(x)) || t.includes(x.baseName || x.name));
+      id = code ? 'go-ch-' + code.replace(/[^A-Za-z0-9]/g, '') : l ? 'go-line-' + l.key : 'go-lines'; if (l) setFolded((f) => ({ ...f, [l.category]: false })); }
+    else if (/company/i.test(t)) id = 'go-company';
+    else if (/their name/i.test(t)) id = 'go-name';
+    else if (/phone/i.test(t)) id = 'go-phone';
+    else if (/site address/i.test(t)) id = 'go-site';
+    else if (/delivery date/i.test(t)) id = 'go-date';
+    else if (/booking time/i.test(t)) id = 'go-time';
+    else if (/sms/i.test(t)) id = 'go-sms';
+    else if (/product/i.test(t)) { tab0 = 'so'; id = 'go-products'; }
+    if (tab0) setTab(tab0);
+    setTimeout(() => { const el = id && document.getElementById(id); if (!el) return; el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.remove('no-flash'); void el.offsetWidth; el.classList.add('no-flash'); const f = el.querySelector('input, select, textarea, button'); if (f && /^go-(company|name|phone|site|date|time)$/.test(id)) f.focus({ preventScroll: true }); }, 120);
+  };
+
   /* a function, not a component: the price box keeps its focus while typing */
   const chargeRow = (x) => { const changed = Math.abs(x.price - x.list) >= 0.005; return (
-    <tr key={x.load + x.key} className={(x.asItem ? 'no-autoi' : 'no-chr') + (x.off ? ' off' : '')}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
+    <tr key={x.load + x.key} id={'go-ch-' + String(x.code).replace(/[^A-Za-z0-9]/g, '')} className={(x.asItem ? 'no-autoi' : 'no-chr') + (x.off ? ' off' : '')}><td>{x.asItem ? <b>{x.name}</b> : x.name}<small className="no-code">{x.code}{x.asItem ? ' · added by itself' : ''}</small>{x.note && !x.off && <small className="no-warn">{x.note}</small>}</td><td>{x.qty}</td>
       <td className="r">{x.locked ? cash(x.price) : <><input className={'no-price' + (changed ? ' ch' : '')} value={x.price} disabled={x.off} inputMode="decimal" onChange={(e) => setCharge(x, { price: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} aria-label={'Price of ' + x.name} />
         {changed && !x.off && <input className={'no-reason' + (x.reason.trim().length < 3 ? ' need' : '')} value={x.reason} onChange={(e) => setCharge(x, { reason: e.target.value })} placeholder="Reason for the price *" />}</>}</td>
       <td className="r"><b>{x.off ? '—' : cash(r2(x.qty * x.price))}</b></td>
@@ -543,7 +568,7 @@ export default function NewOrder() {
                 <div key={d.id} className="no-dr"><button type="button" onClick={() => openDraft(d.id)}><b>DRAFT-{d.id}</b> {d.customer_name || 'No company yet'}<small>{cash(d.total)} · {d.created_by_name} · {new Date(d.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></button><button type="button" className="no-x" aria-label={'Delete DRAFT-' + d.id} onClick={() => dropDraft(d.id)}>×</button></div>))}</div>}
             </div>
             <div className="no-hd">
-              <div className="no-f no-c1">Company <span className="req">*</span>
+              <div className="no-f no-c1" id="go-company">Company <span className="req">*</span>
                 {!o.customer ? <div className="no-cwrap"><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" aria-label="Company" autoFocus />
                   {cHits.length > 0 && <div className="no-pop">{cHits.map((c) => <button key={c.id} type="button" onClick={() => pickCustomer(c)}><b>{c.name}</b><small>{[c.email, c.mobile || c.phone].filter(Boolean).join(' · ')} · {c.terms === 'account' ? 'Account' : 'COD'}{c.on_hold ? ' · ON HOLD' : ''}</small></button>)}</div>}</div>
                   : <div className="no-cust"><b>{o.customer.name}</b><button type="button" className="link" onClick={() => { setO({ ...o, customer: null }); setNotes([]); }}>Change</button></div>}
@@ -556,15 +581,15 @@ export default function NewOrder() {
               <div className="no-f">Their PO <i className="no-opt">(optional)</i><input value={o.their_po} onChange={(e) => setO({ ...o, their_po: e.target.value })} placeholder="PO / ref" aria-label="Their PO" />
                 <label className="btn no-plans">{uploading ? 'Uploading…' : 'Plans or drawings' + (o.plans.length ? ' (' + o.plans.length + ')' : '')}<input type="file" multiple accept=".pdf,image/*,.dwg,.dxf" onChange={(e) => uploadPlans(e.target.files)} hidden /></label></div>
 
-              <label className="no-f">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} placeholder="Who is this order for?" /></label>
-              <label className="no-f">Their phone <span className="req">*</span><span className="no-mob"><b>AU +61 4</b><input value={fmt8(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: digits8(e.target.value), mobile: true })} inputMode="tel" placeholder="12 345 678" aria-label="Their mobile, after +61 4" /></span></label>
-              <div className="no-f">Site address <span className="req">*</span><span className="no-two"><AddressInput value={o.site_street} onChange={(v) => setO((x) => ({ ...x, site_street: v }))} onPick={(r) => setO((x) => ({ ...x, site_street: r.street, site_suburb: r.suburb || x.site_suburb }))} placeholder="14 Banks Rd" ariaLabel="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
+              <label className="no-f" id="go-name">Their name <span className="req">*</span><input value={o.contact_name} onChange={(e) => setO({ ...o, contact_name: e.target.value })} placeholder="Who is this order for?" /></label>
+              <label className="no-f" id="go-phone">Their phone <span className="req">*</span><span className="no-mob"><b>AU +61 4</b><input value={fmt8(o.contact_phone)} onChange={(e) => setO({ ...o, contact_phone: digits8(e.target.value), mobile: true })} inputMode="tel" placeholder="12 345 678" aria-label="Their mobile, after +61 4" /></span></label>
+              <div className="no-f" id="go-site">Site address <span className="req">*</span><span className="no-two"><AddressInput value={o.site_street} onChange={(v) => setO((x) => ({ ...x, site_street: v }))} onPick={(r) => setO((x) => ({ ...x, site_street: r.street, site_suburb: r.suburb || x.site_suburb }))} placeholder="14 Banks Rd" ariaLabel="Street" /><input value={o.site_suburb} onChange={(e) => setO({ ...o, site_suburb: e.target.value })} placeholder="Penrith 2750" aria-label="Suburb and postcode" /></span></div>
               <label className="no-f">Email for the invoice<input type="email" value={o.email} onChange={(e) => setO({ ...o, email: e.target.value })} placeholder="Email for this order" /></label>
               <label className="no-f">Notes<input value={o.instructions} onChange={(e) => setO({ ...o, instructions: e.target.value })} placeholder="Special instructions…" /></label>
 
-              <label className="no-f">Delivery date {o.kind === 'order' && <span className="req">*</span>}<input type="date" value={o.delivery_date} onChange={(e) => setO({ ...o, delivery_date: e.target.value })} /></label>
-              <label className="no-f">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
-              {<div className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>}
+              <label className="no-f" id="go-date">Delivery date {o.kind === 'order' && <span className="req">*</span>}<input type="date" value={o.delivery_date} onChange={(e) => setO({ ...o, delivery_date: e.target.value })} /></label>
+              <label className="no-f" id="go-time">Booking time {o.kind === 'order' && <span className="req">*</span>}<select value={o.booking_time} onChange={(e) => setO({ ...o, booking_time: e.target.value })}><option value="">Select a time</option>{TIMES.map((t) => <option key={t}>{t}</option>)}</select></label>
+              {<div id="go-sms" className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>}
             </div>
             {o.customer && <div className="no-chips">
               <span className="no-chip" style={{ background: '#FEF3C7', color: '#92400E' }}>{o.customer.terms === 'account' ? 'Account customer' : 'COD customer'}</span>
@@ -590,7 +615,7 @@ export default function NewOrder() {
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 
           {tab === 'so' && <>
-          <section className="no-card" aria-label="Products">
+          <section className="no-card" aria-label="Products" id="go-products">
             <div className="no-ct">Products</div>
             <div className="no-cats">{CATS.filter((c) => catCount(c)).map((c) => <button key={c} type="button" className={'no-cat' + (cat === c ? ' on' : '')} style={{ '--c': COLOR[c] }} onClick={() => setCat(cat === c ? '' : c)}><i />{c}</button>)}</div>
             <input type="search" className="no-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={cat ? 'Search ' + cat + ' by name or code…' : 'Search a product by name or code…'} aria-label="Search a product" />
@@ -606,7 +631,7 @@ export default function NewOrder() {
             })()}</div>}
             {q.trim().length >= 2 && !shown.length && <p className="no-sub">No product matches.</p>}
           </section>
-          <section className="no-card" aria-label="On this order">
+          <section className="no-card" aria-label="On this order" id="go-lines">
             <div className="no-ct">On this order{soCats.length > 1 && <span className="no-foldall"><button type="button" className="link" onClick={() => setFolded(Object.fromEntries(soCats.map((c) => [c, true])))}>Minimise all</button><button type="button" className="link" onClick={() => setFolded({})}>Expand all</button></span>}</div>
             {!lines.length && <p className="no-sub">Nothing yet: pick a material or search, then press Add.</p>}
             {soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = mergeCh(allCharges.filter((x) => x.cat === c)), sum = r2(ls.reduce((s, l) => s + r2(l.qty * l.price), 0) + chs.filter((x) => !x.off).reduce((s, x) => s + r2(x.qty * x.price), 0)); return (
@@ -617,7 +642,7 @@ export default function NewOrder() {
                   <thead><tr><th>Product</th><th>Qty</th><th className="r">Unit ex GST</th><th className="r">Amount</th><th className="r">Cost</th><th className="r">Profit $</th><th className="r">Profit %</th><th /></tr></thead>
                   <tbody>
                     {ls.map((l) => { const changed = Math.abs(l.price - l.list) >= 0.005; return (
-                      <tr key={l.key}><td><b>{lineName(l)}</b><small>{l.code} · {l.unit}</small>
+                      <tr key={l.key} id={'go-line-' + l.key}><td><b>{lineName(l)}</b><small>{l.code} · {l.unit}</small>
                         {epsKind(l.code) && <span className="no-cus">{(epsKind(l.code) === 'sheet'
                           ? [['L', 'Length mm', 'e.g. 2500'], ['W', 'Width mm', 'e.g. 1200'], ['H', 'Height mm', 'e.g. 100']] : [['D', 'Diameter mm', 'e.g. 600'], ['H', 'Height mm', 'e.g. 100']]).map(([f, lab, ph]) =>
                           <label key={f}>{lab} <i className="req">*</i><input value={(l.eps || {})[f] || ''} inputMode="numeric" placeholder={ph} onChange={(e) => setEps(l, { [f]: e.target.value.replace(/[^0-9.]/g, '') })} /></label>)}
@@ -646,7 +671,7 @@ export default function NewOrder() {
             <div className="no-ct">Build PO <small>one PO per supplier</small>{pos.length > 1 && <span className="no-foldall"><button type="button" className="link" onClick={() => setFoldedPo(Object.fromEntries(pos.map((P) => [P.uid, true])))}>Minimise all</button><button type="button" className="link" onClick={() => setFoldedPo({})}>Expand all</button></span>}</div>
             {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
             {pos.map((P, i) => (
-              <div key={P.uid} className="no-grp">
+              <div key={P.uid} className="no-grp" id={'go-po-' + (i + 1)}>
                 <div className="no-gh no-ghb" style={{ background: '#1E1A17' }}><button type="button" className="no-fold" aria-expanded={!foldedPo[P.uid]} aria-label={(foldedPo[P.uid] ? 'Expand ' : 'Minimise ') + 'PO ' + (i + 1)} onClick={() => setFoldedPo((f) => ({ ...f, [P.uid]: !f[P.uid] }))}>{foldedPo[P.uid] ? '▸' : '▾'}</button>PO {i + 1} <small>{P.supplier || 'No supplier yet'}{P.portal ? ' · ' + P.portal : ''}{P.portal === 'OrderSteel' && poCat(P) ? ' · ' + poCat(P) : ''}{foldedPo[P.uid] ? ' · ' + Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length + ' product' + (Object.keys(P.items).filter((k) => Number(P.items[k]) > 0).length === 1 ? '' : 's') + ' · Send ' + (P.send == null ? 'not chosen' : P.send ? 'Yes' : 'No') : ''}</small>{posHand && <button type="button" className="no-ghx" onClick={() => editPos((Ps) => Ps.filter((x) => x.uid !== P.uid))}>Remove PO</button>}</div>
                 {!foldedPo[P.uid] && <>
                 <div className="no-load">
@@ -690,7 +715,7 @@ export default function NewOrder() {
             <div className="no-ct">Build Load <small>trucks and pick-ups</small></div>
             {!lines.length && <p className="no-sub">Add products in Build SO first.</p>}
             {loadCharges.map(({ L, inLoad, cats, ch }) => { const a = L.answers || {}; return (
-              <div key={L.uid} className="no-grp">
+              <div key={L.uid} className="no-grp" id={'go-load-' + L.n}>
                 <div className="no-gh" style={{ background: cats.length === 1 ? HEAD[cats[0]] : '#1E1A17' }}>Load {L.n} <small>{cats.join(' · ') || 'empty'}</small>{loads.length > 1 && <button type="button" className="no-ghx" onClick={() => removeLoad(L.uid)}>Remove load</button>}</div>
                 <div className="no-load">
                   <Seg value={L.fulfil} set={(v) => setLoad(L.uid, { fulfil: v })} options={[['delivery', 'Delivery'], ['pickup', 'Pick-up']]} />
@@ -752,9 +777,9 @@ export default function NewOrder() {
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}
             {o.kind === 'order' && <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => setO({ ...o, upload_xero: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} />
               <small>{o.upload_xero === false ? 'Nothing goes to Xero.' : 'On placing: the sales order' + (pos.length ? ' and ' + pos.length + ' purchase order' + (pos.length === 1 ? '' : 's') : '') + ' in Xero.'}</small></div>}
-            {msg && <p className={msg.bad ? 'msg bad' : 'msg'} role="status">{msg.text}</p>}
-            {missing && !msg && <p className="no-miss">{missing}</p>}
-            {[...new Set(allCharges.filter((x) => !x.off && x.note && !/location|driving time/i.test(x.note)).map((x) => x.note))].map((t) => <p key={t} className="no-warnbox">Warning: {t}</p>)}
+            {msg && (msg.bad ? <button type="button" className="msg bad no-go" onClick={() => goTo(msg.text)} title="Go there">{msg.text} <i>→</i></button> : <p className="msg" role="status">{msg.text}</p>)}
+            {missing && !msg && <button type="button" className="no-miss no-go" onClick={() => goTo(missing)} title="Go there">{missing} <i>→</i></button>}
+            {[...new Set(allCharges.filter((x) => !x.off && x.note && !/location|driving time/i.test(x.note)).map((x) => x.note))].map((t) => <button type="button" key={t} className="no-warnbox no-go" onClick={() => goTo(t)} title="Go there">Warning: {t} <i>→</i></button>)}
             <button type="button" className="btn btn-red btn-big" disabled={busy} onClick={place}>{busy ? 'Placing…' : o.kind === 'quote' ? 'Save quote' : 'Place order'}</button>
             <div className="no-row"><button type="button" className="btn" onClick={async () => { await save(); setMsg({ text: 'Draft saved.' }); }}>Save draft</button><button type="button" className="btn" onClick={() => { if (window.confirm('Clear the form? The draft stays saved.')) restart(); }}>Clear</button></div>
           </section>

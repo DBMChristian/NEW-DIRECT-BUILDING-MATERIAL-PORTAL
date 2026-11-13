@@ -1,0 +1,35 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { configured } from './lib/supabase.js';
+import { useAuth } from './auth/AuthProvider.jsx';
+import SignIn from './pages/SignIn.jsx';
+import Shell from './components/Shell.jsx';
+import Home from './pages/Home.jsx';
+import Coming from './pages/Coming.jsx';
+
+export default function App() {
+  const { session, staff, loading, signOut } = useAuth();
+  if (!configured) return <div className="centre"><div className="note">The portal is not set up yet: copy <b>.env.example</b> to <b>.env</b> and fill in the Supabase key.</div></div>;
+  if (loading) return <div className="centre"><div className="spinner" aria-label="Loading" /></div>;
+  if (!session) return <SignIn />;
+  if (!staff) return (
+    <div className="centre"><div className="note">
+      <b>{session.user.email}</b> is signed in, but has no staff access yet. Ask an admin to add you.
+      <p><button type="button" className="btn" onClick={signOut}>Sign out</button></p>
+    </div></div>
+  );
+  return (
+    <Routes>
+      <Route element={<Shell />}>
+        <Route index element={<Home />} />
+        <Route path="orders" element={<Coming title="Orders" sub="Every order" />} />
+        <Route path="orders/new" element={<Coming title="New order" sub="Quote or place an order" />} />
+        <Route path="quotes" element={<Coming title="Quotes" sub="Follow up, win or lose" />} />
+        <Route path="warehouse" element={<Coming title="Warehouse" sub="Stock, purchasing, receiving" />} />
+        <Route path="services" element={<Coming title="Services" sub="Installation and delivery" />} />
+        <Route path="admin" element={<Coming title="Admin" sub="Products, prices, customers, users" />} />
+        <Route path="notifications" element={<Coming title="Notifications" sub="What needs you" />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}

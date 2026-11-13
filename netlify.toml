@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# one page app: every address opens the app, which shows the right screen
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

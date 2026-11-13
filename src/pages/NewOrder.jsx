@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import AddressInput from '../components/AddressInput.jsx';
-import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS, PLANTS } from '../lib/charges.js';
+import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
 import { EPS_GRADES, epsKind, cutWidth, isPanel, cutSqm, cutBad, isFree, lineName, customMissing } from '../lib/custom.js';
 
@@ -316,14 +316,14 @@ export default function NewOrder() {
                   <label className="no-f">Gate code<input value={a.gate || ''} onChange={(e) => set({ gate: e.target.value })} placeholder="Code, or N/A" /></label>
                 </div>
     : <div className="no-load no-qs"><b className="no-qt">Concrete</b>
-                  <label className="no-f">Plant<select value={a.plant || ''} onChange={(e) => set({ plant: e.target.value })}>{PLANTS.map((p) => <option key={p} value={p}>{p || 'DBM chooses'}</option>)}</select></label>
+                  
                   <label className="no-f">Pour<select value={a.pour || 'Pump'} onChange={(e) => set({ pour: e.target.value })}>{['Pump', 'Line', 'Chute', 'Boom'].map((x) => <option key={x}>{x}</option>)}</select></label>
                   <label className="no-f">Truck<select value={a.truck || 'Any Truck Size'} onChange={(e) => set({ truck: e.target.value })}>{['Any Truck Size', '10-Wheeler Only', '8-Wheeler Only', '6-Wheeler Only', 'Mini Only'].map((x) => <option key={x}>{x}</option>)}</select></label>
                   <label className="no-f">Spacing<select value={a.spacing || '15min'} onChange={(e) => set({ spacing: e.target.value })}>{['10min', '15min', '20min', '25min', '30min', '45min', 'N/A'].map((x) => <option key={x}>{x}</option>)}</select></label>
                   <label className="no-f">Finish<select value={a.message || 'Neat'} onChange={(e) => set({ message: e.target.value })}>{['Message', 'Neat', 'Neat Plus'].map((x) => <option key={x}>{x}</option>)}</select></label>
                   <label className="no-f">Tester<Seg value={a.tester || 'no'} set={(v) => set({ tester: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
                   <label className="no-f">Coloured<Seg value={a.coloured || 'no'} set={(v) => set({ coloured: v })} options={[['yes', 'Yes'], ['no', 'No']]} /></label>
-                  {a.coloured === 'yes' && <><label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => set({ colour: e.target.value })} /></label><label className="no-f">Max m³ in colour<input inputMode="decimal" value={a.maxColour || ''} onChange={(e) => set({ maxColour: e.target.value })} /></label></>}
+                  {a.coloured === 'yes' && <label className="no-f">Colour<input value={a.colour || ''} onChange={(e) => set({ colour: e.target.value })} /></label>}
                 </div>);
   const catAnswers = (c) => (loads.find((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)) || {}).answers || {};
   const setCatAns = (c, ch) => loads.filter((L) => lines.some((l) => l.category === c && qtyIn(L.items, l.key) > 0)).forEach((L) => setAns(L.uid, ch));

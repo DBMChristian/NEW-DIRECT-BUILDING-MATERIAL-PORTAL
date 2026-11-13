@@ -27,7 +27,9 @@ function Section({ title, sub, children }) {
 export default function Admin() {
   const [staff, setStaff] = useState(null);
   const [products, setProducts] = useState(null);
+  const [suppliers, setSuppliers] = useState(null);
   useEffect(() => { supabase.from('products').select('id', { count: 'exact', head: true }).eq('in_xero', true).then(({ count }) => setProducts(count ?? 0)); }, []);
+  useEffect(() => { supabase.from('suppliers').select('id', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setSuppliers(count ?? 0)); }, []);
   useEffect(() => { supabase.from('staff').select('email', { count: 'exact', head: true }).eq('active', true).then(({ count }) => setStaff(count ?? 0)); }, []);
   return (
     <>
@@ -35,7 +37,7 @@ export default function Admin() {
       <div className="ad">
         <Section title="Products and prices" sub="What Direct sells, what each customer pays, and the suppliers it buys from.">
           <Row to="/admin/products" icon="box" title="Products and price lists" sub="Every product from Xero, with the builder, installer and retail prices" n={products} unit="products" />
-          <Row icon="truck" title="Suppliers" sub="DBM's portals and other suppliers, and where each is ordered from" soon={7} />
+          <Row to="/admin/suppliers" icon="truck" title="Suppliers" sub="Who each material is ordered from, through which portal, and the emails (To and CC)" n={suppliers} unit="suppliers" />
         </Section>
         <Section title="Customers" sub="Who Direct sells to, their account details and the notes the team keeps on them.">
           <Row icon="building" title="Customers" sub="Companies, contacts, COD or account" soon={7} />

@@ -155,3 +155,24 @@ a.ad-row:hover{background:#FAFAF9}
 
 /* a smaller Sync from Xero button */
 .pp-bar .btn{height:32px;padding:0 12px;font-size:13px;border-radius:7px}
+
+/* Admin > Suppliers (13 Nov 2026) */
+.sp-cover{display:flex;flex-wrap:wrap;gap:6px}
+.sp-cv{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+.sp-cv i{width:9px;height:9px;border-radius:50%;background:var(--cc)}.sp-cv.warn{border-color:#FCA5A5;background:#FEF2F2}.sp-cv b{color:var(--red)}
+.sp-card{display:flex;flex-direction:column}
+.sp-route{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}.sp-route:first-child{border-top:0}
+.sp-r-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.sp-portal{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600}
+.sp-portal select,.sp-field input{height:36px;border:1px solid var(--soft);border-radius:8px;padding:0 10px;font:inherit;font-size:13px;background:#fff}
+.sp-r-acts{display:flex;align-items:center;gap:10px}.sp-r-acts .btn{height:34px;font-size:13px}
+.sp-state{font-size:12px;color:var(--muted)}.sp-state.ok{color:#15803D}.sp-state.bad{color:var(--red)}
+.sp-field{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;align-items:center;font-size:12px;font-weight:600}
+.sp-cats{display:flex;flex-wrap:wrap;gap:6px}
+.sp-cat{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-weight:600;font-size:12px;cursor:pointer;color:#57534E;background:#fff}
+.sp-cat input{position:absolute;opacity:0;pointer-events:none}.sp-cat i{width:9px;height:9px;border-radius:50%;border:2px solid var(--cc)}
+.sp-cat.on{border-color:var(--cc);background:color-mix(in srgb,var(--cc) 12%,#fff);color:color-mix(in srgb,var(--cc) 70%,#1E1A17)}.sp-cat.on i{background:var(--cc)}
+.sp-cat:focus-within{outline:2px solid var(--red);outline-offset:1px}
+.sp-add{border:0;border-top:1px dashed var(--line);background:#FAFAF9;padding:10px 16px;text-align:left;font:inherit;font-size:13px;font-weight:600;color:var(--red);cursor:pointer}
+.sp-left-acts{margin-top:8px!important}.sp-off .ad-card{opacity:.55}
+@media (max-width:820px){.sp-field{grid-template-columns:1fr}}

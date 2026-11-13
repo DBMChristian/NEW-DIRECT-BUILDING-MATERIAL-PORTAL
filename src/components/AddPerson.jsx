@@ -25,9 +25,15 @@ export async function resetPassword(person) {
   return { password, emailed };
 }
 
-export default function AddPerson({ onClose, onDone }) {
-  const [f, setF] = useState({ email: '', first: '', last: '', mobile: '', role: 'office' });
-  const [login, setLogin] = useState(true);
+export async function removeLogin(email) { return fn('delete_login', { email }); }
+export async function createLogin(person, password) { await fn('create_login', { email: person.email, password }); }
+
+/* person given: Edit (their details, role and login); none: Add a person */
+export default function AddPerson({ person, myEmail, onClose, onDone }) {
+  const editing = !!person, parts = String(person?.name || '').trim().split(/\s+/);
+  const [f, setF] = useState(editing ? { email: person.email, first: parts[0] || '', last: parts.slice(1).join(' '), mobile: person.mobile || '', role: person.role || 'office' } : { email: '', first: '', last: '', mobile: '', role: 'office' });
+  const [login, setLogin] = useState(!editing);
+  const [active, setActive] = useState(editing ? person.active !== false : true);
   const [pw, setPw] = useState(tempPassword());
   const [mail, setMail] = useState(emailReady);
   const [busy, setBusy] = useState(false);
@@ -38,23 +44,24 @@ export default function AddPerson({ onClose, onDone }) {
     if (!f.first.trim()) { setErr('Enter their first name.'); return; }
     setBusy(true); setErr('');
     const name = [f.first.trim(), f.last.trim()].filter(Boolean).join(' ');
-    const ins = await supabase.from('staff').insert({ email, name, role: f.role, mobile: f.mobile.trim() });
-    if (ins.error) { setBusy(false); setErr(/duplicate/i.test(ins.error.message) ? email + ' is already on the list.' : ins.error.message); return; }
-    let note = name + ' added as ' + ROLE_CARDS.find((r) => r[0] === f.role)[1] + '.';
+    const row = { name, role: f.role, mobile: f.mobile.trim(), ...(editing && person.email !== myEmail ? { active } : {}) };
+    const r = editing ? await supabase.from('staff').update({ ...row, updated_at: new Date().toISOString() }).eq('email', email) : await supabase.from('staff').insert({ email, ...row });
+    if (r.error) { setBusy(false); setErr(/duplicate/i.test(r.error.message) ? email + ' is already on the list.' : r.error.message); return; }
+    let note = editing ? name + ' saved.' : name + ' added as ' + ROLE_CARDS.find((x) => x[0] === f.role)[1] + '.';
     if (login) {
-      try { await fn('create_login', { email, password: pw }); note += ' Login made, temporary password ' + pw + '.'; }
-      catch (e) { setBusy(false); onDone({ bad: true, text: note + ' But the login was not made: ' + e.message }); return; }
-      if (mail) { try { await sendLoginEmail({ email, name, password: pw }); note += ' Login details emailed.'; } catch (e) { note += ' The email was not sent (' + e.message + '): give them the password yourself.'; } }
+      try { await fn(editing && person.has_login ? 'set_password' : 'create_login', { email, password: pw }); note += (editing && person.has_login ? ' New temporary password ' : ' Login made, temporary password ') + pw + '.'; }
+      catch (e) { setBusy(false); onDone({ bad: true, text: note + ' But the login was not changed: ' + e.message }); return; }
+      if (mail) { try { await sendLoginEmail({ email, name, password: pw, reset: editing && person.has_login }); note += ' Emailed to them.'; } catch (e) { note += ' The email was not sent (' + e.message + '): give them the password yourself.'; } }
     }
     setBusy(false); onDone({ text: note });
   };
   return (
     <div className="ap-wrap" role="dialog" aria-modal="true" aria-labelledby="ap-t">
       <div className="ap">
-        <header className="ap-h"><div><h3 id="ap-t">Add a person</h3><p>Adds them to the users list, and gives them a login if you want.</p></div><button type="button" className="ap-x" onClick={onClose} aria-label="Close">×</button></header>
+        <header className="ap-h"><div><h3 id="ap-t">{editing ? 'Edit ' + (person.name || person.email) : 'Add a person'}</h3><p>{editing ? 'Their details, role and login.' : 'Adds them to the users list, and gives them a login if you want.'}</p></div><button type="button" className="ap-x" onClick={onClose} aria-label="Close">×</button></header>
         <section className="ap-s">
           <h4><span>1</span>Their details</h4>
-          <label className="ap-f">EMAIL<input type="email" autoFocus value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="name@directbuildingmaterial.com.au" /></label>
+          <label className="ap-f">EMAIL<input type="email" autoFocus={!editing} disabled={editing} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="name@directbuildingmaterial.com.au" /></label>
           <div className="ap-two">
             <label className="ap-f">FIRST NAME<input value={f.first} onChange={(e) => setF({ ...f, first: e.target.value })} /></label>
             <label className="ap-f">LAST NAME<input value={f.last} onChange={(e) => setF({ ...f, last: e.target.value })} /></label>
@@ -73,15 +80,17 @@ export default function AddPerson({ onClose, onDone }) {
           </div>
         </section>
         <section className="ap-s">
-          <label className="ap-check"><input type="checkbox" checked={login} onChange={(e) => setLogin(e.target.checked)} /> GIVE THEM A PORTAL LOGIN NOW</label>
+          <label className="ap-check"><input type="checkbox" checked={login} onChange={(e) => setLogin(e.target.checked)} /> {editing && person.has_login ? 'GIVE THEM A NEW TEMPORARY PASSWORD' : 'GIVE THEM A PORTAL LOGIN NOW'}</label>
+          {editing && <p className="ap-sub">{person.has_login ? 'They have a login' + (person.last_sign_in ? ', last signed in ' + new Date(person.last_sign_in).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ', never signed in yet') + '.' : 'No login yet.'}</p>}
           {login && <>
             <label className="ap-f">TEMPORARY PASSWORD<span className="ap-pw"><input value={pw} onChange={(e) => setPw(e.target.value)} /><button type="button" className="btn" onClick={() => setPw(tempPassword())}>New</button></span></label>
             <p className="ap-sub">They'll be asked to choose their own the first time they sign in.</p>
             <label className="ap-check ap-mail"><input type="checkbox" checked={mail} disabled={!emailReady} onChange={(e) => setMail(e.target.checked)} /><span><b>✉ EMAIL THEM THEIR LOGIN DETAILS</b><small>{emailReady ? 'Their email address, this password and a link to the portal.' : 'EmailJS is not set up yet: give them the password yourself.'}</small></span></label>
           </>}
         </section>
+        {editing && person.email !== myEmail && <section className="ap-s"><label className="ap-check"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> CAN USE THE PORTAL</label><p className="ap-sub">Untick to switch them off for now: they stay on the list and can be switched back on.</p></section>}
         {err && <p className="msg bad ap-err">{err}</p>}
-        <footer className="ap-foot"><button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button><button type="button" className="btn btn-red" onClick={go} disabled={busy}>{busy ? 'Adding…' : login ? 'Add and create login' : 'Add'}</button></footer>
+        <footer className="ap-foot"><button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button><button type="button" className="btn btn-red" onClick={go} disabled={busy}>{busy ? 'Saving…' : editing ? (login ? 'Save and set password' : 'Save') : login ? 'Add and create login' : 'Add'}</button></footer>
       </div>
     </div>
   );

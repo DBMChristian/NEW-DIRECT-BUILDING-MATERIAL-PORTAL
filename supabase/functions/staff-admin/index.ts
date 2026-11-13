@@ -2,6 +2,7 @@
 //   POST { action: "create_login", email, password, name }  a login with this temporary password (they choose their own
 //                                                            the first time they sign in)
 //   POST { action: "set_password", email, password }        a new temporary password (Reset password)
+//   POST { action: "delete_login", email }                  removes the login (Remove person)
 // Only an admin on the staff list, and only for someone on the staff list. Deploy:
 //   npx supabase functions deploy staff-admin --project-ref qnfuifckyfhiuvqyvkvf
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -21,9 +22,10 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const email = String(body?.email || "").trim().toLowerCase(), password = String(body?.password || "");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Not an email" }, 400);
-    if (password.length < 8) return json({ error: "The password needs at least 8 characters" }, 400);
+    if (body?.action !== "delete_login" && password.length < 8) return json({ error: "The password needs at least 8 characters" }, 400);
     const { data: person } = await admin.from("staff").select("email, name").eq("email", email).maybeSingle();
-    if (!person) return json({ error: email + " is not on the staff list" }, 404);
+    if (!person && body?.action !== "delete_login") return json({ error: email + " is not on the staff list" }, 404);
+    if (email === me) return json({ error: "You cannot do that to yourself" }, 400);
     /* the login, found by email (the list is small) */
     let found: any = null;
     for (let page = 1; page <= 20 && !found; page++) {
@@ -31,7 +33,7 @@ Deno.serve(async (req) => {
       found = (data?.users || []).find((x: any) => String(x.email || "").toLowerCase() === email) || null;
       if (!data?.users?.length || data.users.length < 200) break;
     }
-    const meta = { name: person.name || "", must_change_password: true };
+    const meta = { name: person?.name || "", must_change_password: true };
     if (body?.action === "create_login") {
       if (found) { const r = await admin.auth.admin.updateUserById(found.id, { password, user_metadata: { ...found.user_metadata, ...meta } }); if (r.error) throw r.error; return json({ ok: true, existed: true }); }
       const r = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta });
@@ -43,6 +45,10 @@ Deno.serve(async (req) => {
       const r = await admin.auth.admin.updateUserById(found.id, { password, user_metadata: { ...found.user_metadata, ...meta } });
       if (r.error) throw r.error;
       return json({ ok: true });
+    }
+    if (body?.action === "delete_login") {   /* Remove: the person's login goes too, so it cannot sign in again */
+      if (found) { const r = await admin.auth.admin.deleteUser(found.id); if (r.error) throw r.error; }
+      return json({ ok: true, had_login: !!found });
     }
     return json({ error: "Unknown action" }, 400);
   } catch (e) {

@@ -807,3 +807,4 @@ tr.no-flash td{background:#FEF2F2!important}
 .no-soview .no-prof{max-width:380px;margin-left:auto;width:100%}
 .no-onote-ev{background:#F0FDF4;border-color:#BBF7D0}
 .no-onote-bad{background:#FEF2F2;border-color:#FECACA}
+.no-fixed{display:block;margin-top:4px;font-size:13px;font-weight:600;color:var(--ink);line-height:30px}

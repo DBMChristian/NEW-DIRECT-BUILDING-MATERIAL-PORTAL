@@ -65,6 +65,9 @@ export default function NewOrder() {
   const [newCust, setNewCust] = useState(null);
   const [orderNotes, setOrderNotes] = useState([]);
   const [soXero, setSoXero] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [payForm, setPayForm] = useState(null);   /* Take payment, open */
+  const [invMenu, setInvMenu] = useState(false);
   const [folded, setFolded] = useState({});   /* materials minimised in Build SO */
   const [foldedPo, setFoldedPo] = useState({});   /* POs minimised in Build PO */
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
@@ -483,6 +486,7 @@ export default function NewOrder() {
     if (d.status !== 'draft') placedRef.current = true;   /* a placed order is shown, never saved over */
     const xq = d.number ? await supabase.from('xero_queue').select('id, action, status, last_error, xero_id, sent_at').eq('ref', 'INV-' + String(d.number).replace(/\D/g, '')).order('id', { ascending: false }) : { data: [] };
     setSoXero(xq.data || []);
+    const py = await supabase.from('order_payments').select('*').eq('order_id', d.id).order('paid_on', { ascending: false }); setPayments(py.data || []);
     const nt = await supabase.from('order_events').select('*').eq('order_id', d.id).order('at', { ascending: false }).order('id', { ascending: false }); setOrderNotes(nt.data || []);
   };
   const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
@@ -538,6 +542,21 @@ export default function NewOrder() {
     const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: data.id } });
     let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
     if (!b?.ok) throw new Error('Xero: ' + (b?.error || 'no answer') + ' (it waits in Admin › Not yet in Xero)'); }, 'INV-' + String(o.number || '').replace(/\D/g, '') + ' is in Xero.');
+  const paidSum = r2(payments.reduce((t, x) => t + Number(x.amount), 0)), owing = r2(Number(o.total_saved ?? total) - paidSum);
+  const takePayment = () => run('pay', async () => { const f = payForm, amt = r2(Number(String(f.amount).replace(/[^0-9.]/g, '')));
+    if (!(amt > 0)) throw new Error('Enter the amount.'); if (f.method === 'Bank transfer' && !f.ref.trim()) throw new Error('Enter the transfer reference.');
+    const r = await supabase.from('order_payments').insert({ order_id: o.id, amount: amt, method: f.method, ref: f.ref.trim(), paid_on: f.on, by_email: staff.email, by_name: staff.name || staff.email.split('@')[0] }); if (r.error) throw r.error; setPayForm(null); },
+    'Payment recorded.');
+  const invInXero = soXero.find((x) => x.status === 'done' && x.xero_id && x.action === 'create');
+  const invoice = (what) => { setInvMenu(false); if (!invInXero) { setActMsg({ bad: true, text: 'The invoice is not in Xero yet: set Upload to Xero to Yes.' }); return; }
+    if (what === 'open') { window.open('https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=' + invInXero.xero_id, '_blank', 'noopener'); return; }
+    run('inv', async () => { const r = await supabase.functions.invoke('xero', { body: { action: 'invoice', what, xero_id: invInXero.xero_id } });
+      let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } } if (!b?.ok) throw new Error(b?.error || 'Xero did not answer');
+      const inv = 'INV-' + String(o.number || '').replace(/\D/g, '');
+      if (what === 'pdf') { const a = document.createElement('a'); a.href = 'data:application/pdf;base64,' + b.pdf; a.download = inv + '.pdf'; a.click(); await logEvent(o.id, 'so', inv, inv + ' PDF downloaded'); }
+      if (what === 'email') await logEvent(o.id, 'so', inv, inv + ' emailed to the customer by Xero');
+      if (what === 'approve') await logEvent(o.id, 'so', inv, inv + ' approved in Xero'); },
+      what === 'pdf' ? 'Invoice downloaded.' : what === 'email' ? 'Xero emailed the invoice to the customer.' : 'Invoice approved in Xero.'); };
   const cancelOrder = () => { const why = window.prompt('Cancel ' + o.number + '? Type the reason (it is kept on the order):'); if (why == null) return;
     run('cancel', async () => { const { data, error } = await supabase.rpc('cancel_order', { p_id: o.id, p_reason: why }); if (error) throw error;
       for (const qid of data?.xero || []) await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); }, o.number + ' cancelled.'); };
@@ -890,6 +909,17 @@ export default function NewOrder() {
               <p>Who delivers it?</p>
               <button type="button" className="btn btn-red" onClick={() => answerDelivery(askDelivery.L, 'supplier')}>Supplier delivery<small>also added to the supplier's PO (its delivery quantity goes up)</small></button>
               <button type="button" className="btn" onClick={() => answerDelivery(askDelivery.L, 'internal')}>Internal delivery<small>Direct's own truck: on the sales order only, the PO stays as it is</small></button></div></div></div>}
+        {payForm && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-labelledby="pay-t">
+          <div className="no-prevbox no-askd"><div className="no-prevh"><b id="pay-t">Take payment · {o.number}</b><button type="button" className="ap-x" onClick={() => setPayForm(null)} aria-label="Close">×</button></div>
+            <div className="no-askb">
+              <p>Owing <b>{cash(owing)}</b> of {cash(o.total_saved ?? total)}</p>
+              <label className="no-f">Amount <span className="req">*</span><input inputMode="decimal" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} autoFocus /></label>
+              <div className="no-f">How <span className="req">*</span><Seg value={payForm.method} set={(v) => setPayForm({ ...payForm, method: v })} options={[['Card', 'Card'], ['Bank transfer', 'Bank'], ['Cash', 'Cash'], ['EFTPOS', 'EFTPOS'], ['Cheque', 'Cheque']]} /></div>
+              <label className="no-f">Reference{payForm.method === 'Bank transfer' && <span className="req"> *</span>}<input value={payForm.ref} onChange={(e) => setPayForm({ ...payForm, ref: e.target.value })} placeholder="Receipt, transfer or card reference" /></label>
+              <label className="no-f">Paid on<input type="date" value={payForm.on} onChange={(e) => setPayForm({ ...payForm, on: e.target.value })} /></label>
+              {actMsg?.bad && <p className="msg bad">{actMsg.text}</p>}
+              <div className="no-row"><button type="button" className="btn" onClick={() => setPayForm(null)}>Cancel</button><button type="button" className="btn btn-red" disabled={act === 'pay'} onClick={takePayment}>{act === 'pay' ? 'Recording…' : 'Record payment'}</button></div>
+            </div></div></div>}
         {preview && <div className="ap-wrap no-prev" role="dialog" aria-modal="true" aria-label="Email preview" onClick={(e) => { if (e.target === e.currentTarget) setPreview(null); }}>
           <div className="no-prevbox"><div className="no-prevh"><b>Email preview</b><small>Subject: {preview.subject}</small><button type="button" className="ap-x" onClick={() => setPreview(null)} aria-label="Close">×</button></div>
             <div className="no-prevmail" dangerouslySetInnerHTML={{ __html: preview.html }} /></div></div>}
@@ -917,7 +947,14 @@ export default function NewOrder() {
                 <small>{P.send ? 'Sent to the supplier' : 'Not sent'}{P.supplier_ref ? ' · in ' + P.portal + ' as ' + P.supplier_ref : ''}{P.portal_error && P.portal_error !== 'sending' ? ' · portal: ' + P.portal_error : ''}</small>
                 <span className="no-row"><button type="button" className="btn" onClick={() => setPreview(poMail(P, P.number, o.number))}>Preview</button><button type="button" className="btn" disabled={!!act} onClick={() => resendPo(P)}>{act === 'mail' + P.uid ? 'Sending…' : P.send ? 'Resend email' : 'Email it'}</button>
                   {P.portal && !P.supplier_ref && <button type="button" className="btn" disabled={!!act} onClick={() => toPortal(P)}>{act === 'portal' + P.uid ? 'Sending…' : 'To ' + P.portal}</button>}</span></div>)}
-</>}              {tab === 'so' && o.kind === 'order' && (() => { const inX = soXero.find((x) => x.status === 'done' && x.xero_id && x.action !== 'delete'), last = soXero[0], inv = 'INV-' + String(o.number || '').replace(/\D/g, '');
+</>}              {tab === 'so' && o.kind === 'order' && o.status !== 'cancelled' && <>
+                <div className="no-pay"><div className="no-sl"><span>Total</span><b>{cash(o.total_saved ?? total)}</b></div><div className="no-sl"><span>Paid</span><b>{cash(paidSum)}</b></div><div className={'no-sl no-big' + (owing > 0.005 ? ' neg' : '')}><span>{owing > 0.005 ? 'Owing' : owing < -0.005 ? 'Overpaid' : 'Paid in full'}</span><b>{cash(Math.abs(owing))}</b></div></div>
+                <div className="no-row no-actrow"><button type="button" className="btn" disabled={!!act || owing <= 0.005} onClick={() => setPayForm({ amount: owing.toFixed(2), method: o.terms === 'account' ? 'Bank transfer' : 'Card', ref: '', on: new Date().toISOString().slice(0, 10) })}>Take payment</button>
+                  <span className="no-menu"><button type="button" className="btn" disabled={!!act} aria-expanded={invMenu} onClick={() => setInvMenu(!invMenu)}>Invoice ▾</button>
+                    {invMenu && <span className="no-menupop" role="menu"><button type="button" role="menuitem" onClick={() => invoice('open')}>Open in Xero ↗</button><button type="button" role="menuitem" onClick={() => invoice('pdf')}>Download PDF</button><button type="button" role="menuitem" onClick={() => invoice('approve')}>Approve in Xero</button><button type="button" role="menuitem" onClick={() => invoice('email')}>Email to the customer (Xero)</button></span>}</span></div>
+                {payments.length > 0 && <div className="no-pays">{payments.map((x) => <div key={x.id}><span>{new Date(x.paid_on + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })} · {x.method}{x.ref ? ' · ' + x.ref : ''}</span><b>{cash(x.amount)}</b></div>)}</div>}
+              </>}
+              {tab === 'so' && o.kind === 'order' && (() => { const inX = soXero.find((x) => x.status === 'done' && x.xero_id && x.action !== 'delete'), last = soXero[0], inv = 'INV-' + String(o.number || '').replace(/\D/g, '');
                 return <><div className="no-ah">XERO</div>
                   <p className="no-xst">{inX ? <><b className="no-okl">{inv} is in Xero</b>{last?.sent_at ? ' · last ' + new Date(last.sent_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</> : last?.status === 'failed' ? <b className="no-badl">{inv}: Xero refused it · {last.last_error}</b> : <>{inv} is not in Xero{o.upload_xero === false ? ' (placed without uploading)' : ''}</>}</p>
                   <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => { if ((v === 'yes') !== (o.upload_xero !== false)) setUpload(v === 'yes'); }} options={[['yes', 'Yes'], ['no', 'No']]} />

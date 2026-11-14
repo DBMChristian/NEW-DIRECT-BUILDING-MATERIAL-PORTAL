@@ -119,7 +119,9 @@ export default function Home() {
   const load = async () => {
     /* COD balance: the portal's own COD orders that still have money owing (13 Nov 2026). Orders are not in the new
        portal yet, so it stays empty until New Order is built; Xero's own invoices are not listed here. */
-    setCod([]);
+    /* COD balance: the placed COD orders still owing (total less the payments taken), oldest first */
+    const co = await supabase.from('orders').select('id, number, customer_name, contact_phone, total, paid, placed_at').eq('status', 'placed').eq('kind', 'order').eq('terms', 'cod').order('placed_at', { ascending: true });
+    setCod((co.data || []).map((x) => ({ ...x, owing: Math.round((Number(x.total) - Number(x.paid || 0)) * 100) / 100 })).filter((x) => x.owing > 0.005));
     /* Pending: the loads of placed orders not booked yet (on hold apart); the day: loads booked for it */
     const pl = await supabase.from('order_loads').select('id, order_id, category, fulfil, site_address, want_date, want_time, status, booked_date, booked_time, orders!inner(number, status, customer_name, total, terms)').eq('orders.status', 'placed').in('status', ['pending', 'on_hold', 'booked']);
     const rows = pl.data || [];
@@ -151,8 +153,8 @@ export default function Home() {
   const dayOrders = byOrder((booked || []).filter((r) => r.booked_date === ymd(day)));
   const todayYmd = ymd(new Date());
   const isOver = (x) => x.status === 'AUTHORISED' && x.due_date && x.due_date < todayYmd;
-  const codTotal = useMemo(() => (cod || []).reduce((a, x) => a + Number(x.amount_due || 0), 0), [cod]);
-  const codOver = useMemo(() => (cod || []).filter(isOver).reduce((a, x) => a + Number(x.amount_due || 0), 0), [cod]);
+  const codTotal = useMemo(() => (cod || []).reduce((a, x) => a + Number(x.owing || 0), 0), [cod]);
+  const codOver = 0;
   const newEnq = (enq || []).filter((e) => e.status === 'new').length;
   const take = async (e) => { const { error } = await supabase.from('enquiries').update({ status: e.status === 'new' ? 'working' : e.status, taken_by: staff.email, taken_by_name: staff.name || staff.email.split('@')[0], updated_at: new Date().toISOString() }).eq('id', e.id); if (!error) load(); };
   const shift = (n) => { const d = new Date(day); d.setDate(d.getDate() + n * (range === 'week' ? 7 : 1)); setDay(d); };
@@ -209,9 +211,9 @@ export default function Home() {
               <div className="hm-list hm-rows">
                 {cod !== null && !cod.length && <div className="hm-empty">No COD orders with a balance. Orders placed in this portal show here while they still owe money.</div>}
                 {(cod || []).slice(0, codAll ? 999 : 6).map((x) => (
-                  <div key={x.xero_invoice_id} className="hm-line"><div><b>{x.customer_name}</b>
-                    <small>{x.number}{x.reference ? ' · ' + x.reference : ''} · {x.invoice_date ? ago(x.invoice_date + 'T00:00:00') + ' old' : ''}{x.status === 'SUBMITTED' ? <span className="hm-appr"> · awaiting approval</span> : isOver(x) ? <span className="hm-red"> · overdue</span> : ''}</small></div>
-                    <span className={'hm-amt' + (isOver(x) ? ' hm-red' : '')}>{cash(x.amount_due)}</span></div>
+                  <Link key={x.id} to={'/orders/' + x.id} className="hm-line hm-link"><div><b>{x.customer_name}</b>
+                    <small>{x.number} · {ago(x.placed_at)} old{Number(x.paid) > 0 ? ' · paid ' + cash(x.paid) + ' of ' + cash(x.total) : ''}</small></div>
+                    <span className="hm-amt hm-red">{cash(x.owing)}</span></Link>
                 ))}
                 {(cod || []).length > 6 && <button type="button" className="link hm-more" onClick={() => setCodAll(!codAll)}>{codAll ? 'Show fewer' : 'See all ' + cod.length}</button>}
               </div>

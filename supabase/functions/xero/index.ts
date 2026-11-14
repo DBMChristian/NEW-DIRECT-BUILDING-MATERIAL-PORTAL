@@ -135,6 +135,39 @@ Deno.serve(async (req) => {
         return json({ ok: true, existed, customer: saved.data });
       } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 502); }
     }
+    /* an order's invoice in Xero (13 Nov 2026): its PDF, emailed by Xero to the customer, or approved. Office and admin. */
+    if (action === "invoice") {
+      if (who.role !== "admin" && who.role !== "office") return json({ error: "Only the office can do that" }, 403);
+      const id = String(body?.xero_id || ""), what = String(body?.what || "");
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "No invoice in Xero" }, 400);
+      try {
+        const l = await access();
+        const h = { Authorization: "Bearer " + l.access_token, "xero-tenant-id": l.tenant_id };
+        if (what === "pdf") {
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices/" + id, { headers: { ...h, Accept: "application/pdf" } });
+          if (!r.ok) throw new Error("Xero: " + r.status + " " + (await r.text()).slice(0, 200));
+          const buf = new Uint8Array(await r.arrayBuffer()); let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+          return json({ ok: true, pdf: btoa(bin) });
+        }
+        if (what === "approve") {
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices", { method: "POST", headers: { ...h, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ Invoices: [{ InvoiceID: id, Status: "AUTHORISED" }] }) });
+          const j = await r.json().catch(() => ({})); const ve = ((j?.Elements || [])[0]?.ValidationErrors || []).map((v: any) => v.Message).join("; ");
+          if (!r.ok || ve) throw new Error("Xero: " + (ve || j?.Detail || j?.Message || r.status));
+          return json({ ok: true });
+        }
+        if (what === "email") {
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices/" + id + "/Email", { method: "POST", headers: { ...h, Accept: "application/json", "Content-Type": "application/json" }, body: "{}" });
+          if (!r.ok) { const t = await r.text(); throw new Error("Xero: " + (/ValidationException|Message/.test(t) ? (t.match(/"Message"\s*:\s*"([^"]+)"/) || [])[1] || t.slice(0, 200) : r.status)); }
+          return json({ ok: true });
+        }
+        if (what === "status") {
+          const r = await fetch("https://api.xero.com/api.xro/2.0/Invoices/" + id, { headers: { ...h, Accept: "application/json" } });
+          const j = await r.json().catch(() => ({})); const iv = (j?.Invoices || [])[0] || {};
+          return json({ ok: true, status: iv.Status, amount_due: iv.AmountDue, total: iv.Total, number: iv.InvoiceNumber });
+        }
+        return json({ error: "Unknown invoice action" }, 400);
+      } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 502); }
+    }
     /* Sync (Xero) on New Order: the office may pull the customers too */
     /* one upload from the queue, now: a sales order is a Xero invoice, a purchase order a Xero purchase order; creating
        sends the document, updating sends it again with its Xero id, deleting deletes a draft (or voids an approved one) */

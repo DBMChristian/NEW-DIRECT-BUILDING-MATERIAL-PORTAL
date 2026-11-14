@@ -646,6 +646,18 @@ export default function NewOrder() {
             </div>
             {view && editPart && <div className="no-editbar on"><b>Editing the order</b><span>Save changes updates the order and its Xero upload; PO emails can then be resent. DBM's portals are not changed from here.</span>
               {missingAll.length > 0 && <div className="no-misslist">{missingAll.map((t) => <button type="button" key={t} className="no-miss no-go" onClick={() => goTo(t)}>{t} <i>→</i></button>)}</div>}</div>}
+            {view && !editPart ? (() => {
+              const dd = o.delivery_date ? new Date(o.delivery_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '';
+              const pl = /^list:(\d+)$/.exec(o.price_list || ''), plName = pl ? (priceLists.find((x) => String(x.id) === pl[1]) || {}).name || 'Special' : String(o.price_list || '').replace(/^./, (x) => x.toUpperCase());
+              const item = (label, value, wide) => <div className={'no-sv' + (wide ? ' wide' : '')}><span>{label}</span><b>{value || <i>—</i>}</b></div>;
+              return <div className="no-sumhd">
+                {item('Company', o.customer?.name, true)}{item('COD or ACC', o.terms === 'account' ? 'Account' : 'COD')}{item('Order or quote', o.kind === 'quote' ? 'Quote' : 'Order')}
+                {item('Their name', o.contact_name)}{item('Their phone', phoneOut(o))}{item('Price list', plName)}{item('Their PO', o.their_po)}
+                {item('Site address', headSite, true)}{item('Delivery date', dd)}{item('Booking time', o.booking_time)}
+                {item('Email for the invoice', o.email, true)}{item('SMS booking confirmation', o.sms == null ? '' : o.sms ? 'Yes' : 'No')}
+                {o.instructions && item('Notes', o.instructions, true)}
+                {(o.plans || []).length > 0 && <div className="no-sv wide"><span>Plans or drawings</span><b>{o.plans.map((f) => <button key={f.path} type="button" className="link" onClick={() => openPlan(f)}>{f.name} ↗</button>)}</b></div>}
+              </div>; })() : <>
             <fieldset className="no-fs" disabled={view && !editPart}>
             <div className="no-hd">
               <div className={'no-f no-c1' + needCls('go-company')} id="go-company">Company <span className="req">*</span>
@@ -672,6 +684,7 @@ export default function NewOrder() {
               {<div id="go-sms" className={'no-f' + (o.sms === null ? ' no-need' : '')}>SMS booking confirmation <span className="req">*</span><Seg value={o.sms === null ? '' : o.sms ? 'yes' : 'no'} set={(v) => setO({ ...o, sms: v === 'yes' })} options={[['yes', 'Yes'], ['no', 'No']]} /></div>}
             </div>
             </fieldset>
+            </>}
             {o.customer && <div className="no-chips">
               <span className="no-chip" style={{ background: '#FEF3C7', color: '#92400E' }}>{o.customer.terms === 'account' ? 'Account customer' : 'COD customer'}</span>
               {o.customer.credit_limit != null && <span className="no-chip" style={{ background: '#F5F5F4', color: '#44403C' }}>Limit {cash(o.customer.credit_limit)}</span>}

@@ -776,3 +776,15 @@ tr.no-flash td{background:#FEF2F2!important}
 .no-bar-r .btn{height:28px;font-size:12.5px;padding:0 12px}
 .no-bar-r .btn{border:1px solid #8D96A1;border-radius:3px;background:linear-gradient(#fff,#eceef1);color:var(--ink)}
 .no-bar-r .btn-red{background:linear-gradient(#d23a3a,#b91c1c);border-color:#991b1b;color:#fff}
+
+/* a placed order's top section, read as a summary (13 Nov 2026) */
+.no-sumhd{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 22px;padding:14px 16px 6px;margin:0 !important}
+.no-sv{display:flex;flex-direction:column;gap:3px;min-width:0}
+.no-sv.wide{grid-column:span 2}
+.no-sv>span{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#78716C}
+.no-sv>b{font-size:14px;font-weight:600;color:var(--ink);line-height:1.35;word-break:break-word}
+.no-sv>b i{font-style:normal;color:#A8A29E;font-weight:400}
+.no-sv>b .link{font-size:13px;margin-right:10px}
+.no-ro .no-chips{margin:4px 16px 0}
+@media (max-width:1000px){.no-sumhd{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.no-sumhd{grid-template-columns:1fr}.no-sv.wide{grid-column:auto}}

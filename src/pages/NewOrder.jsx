@@ -486,8 +486,8 @@ export default function NewOrder() {
   const [bookAt, setBookAt] = useState({});   /* the day and time typed for booking a load */
   const [noteText, setNoteText] = useState('');
   const reopen = () => openDraft(o.id);
-  const [editPart, setEditPart] = useState(null);   /* 'so' | 'po' | 'load' being edited */
-  const startEdit = (part) => run('edit', async () => { const { error } = await supabase.rpc('begin_edit', { p_id: o.id }); if (error) throw error; setEditPart(part); setTab(part); }, null);
+  const [editPart, setEditPart] = useState(null);   /* 'order' while the whole order is being edited */
+  const startEdit = () => run('edit', async () => { const { error } = await supabase.rpc('begin_edit', { p_id: o.id }); if (error) throw error; setEditPart('order'); }, null);
   const cancelEdit = async () => { setEditPart(null); await supabase.rpc('end_edit', { p_id: o.id, p_part: '', p_save: false }); reopen(); };
   const saveEdit = async () => {
     if (missingAll.length) { setActMsg({ bad: true, text: 'Not saved: ' + missingAll[0] }); goTo(missingAll[0]); return; }
@@ -498,7 +498,7 @@ export default function NewOrder() {
       const res = [];
       for (const qid of data?.xero || []) { const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); res.push(r.data?.ok ? 'ok' : 'failed'); }
       setEditPart(null);
-      setActMsg({ text: 'Changes saved.' + (res.length ? ' Xero: ' + res.filter((x) => x === 'ok').length + ' of ' + res.length + ' updated' + (res.includes('failed') ? ' (the rest wait in Admin › Not yet in Xero).' : '.') : '') + (editPart !== 'load' && pos.some((P) => P.send) ? ' Resend the PO emails if the supplier needs the changes.' : '') });
+      setActMsg({ text: 'Changes saved.' + (res.length ? ' Xero: ' + res.filter((x) => x === 'ok').length + ' of ' + res.length + ' updated' + (res.includes('failed') ? ' (the rest wait in Admin › Not yet in Xero).' : '.') : '') + (pos.some((P) => P.send) ? ' Resend the PO emails if the supplier needs the changes.' : '') });
     } catch (e) { setActMsg({ bad: true, text: 'Not saved: ' + (e.message || e) }); }
     setAct(null); reopen();
   };
@@ -626,11 +626,15 @@ export default function NewOrder() {
   return (
     <>
 
-      <div className="no-wrap">
+      <div className={'no-wrap' + (view && !editPart ? ' no-ro' : '')}>
         <div className="no-top">
           <section className="no-card no-head" aria-label="Customer">
             <div className="no-bar">{view ? <h1>{o.number}<span className={'no-ost no-ost-' + o.status}>{o.status === 'cancelled' ? 'CANCELLED' : o.kind === 'quote' ? 'QUOTE' : 'PLACED'}</span><small>{o.placed_at ? new Date(o.placed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + (o.created_by_name ? ' by ' + o.created_by_name : '') : ''}</small></h1> : <h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>}
-              {view ? <span className="no-bar-r"><button type="button" onClick={() => nav('/orders/new')}>+ New order</button><button type="button" onClick={() => nav('/')}>Home</button></span> :
+              {view ? <span className="no-bar-r">
+                {o.status !== 'cancelled' && (editPart
+                  ? <><button type="button" className="btn" disabled={act === 'saveedit'} onClick={cancelEdit}>Cancel</button><button type="button" className="btn btn-red" disabled={act === 'saveedit'} onClick={saveEdit}>{act === 'saveedit' ? 'Saving…' : 'Save changes'}</button></>
+                  : <button type="button" className="btn btn-red" disabled={!!act} onClick={startEdit}>Edit order</button>)}
+                <button type="button" onClick={() => nav('/orders/new')}>+ New order</button><button type="button" onClick={() => nav('/')}>Home</button></span> :
               <span className="no-bar-r">
                 {staff.role === 'admin' && <a href="/admin/products" target="_blank" rel="noreferrer">Price Book</a>}
                 {lastDraft && <button type="button" onClick={() => openDraft(lastDraft.id)}>↻ Continue DRAFT-{lastDraft.id}</button>}
@@ -640,7 +644,9 @@ export default function NewOrder() {
               {showDrafts && <div className="no-drafts">{!drafts.length ? <p className="no-sub">No unfinished forms.</p> : drafts.map((d) => (
                 <div key={d.id} className="no-dr"><button type="button" onClick={() => openDraft(d.id)}><b>DRAFT-{d.id}</b> {d.customer_name || 'No company yet'}<small>{cash(d.total)} · {d.created_by_name} · {new Date(d.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></button><button type="button" className="no-x" aria-label={'Delete DRAFT-' + d.id} onClick={() => dropDraft(d.id)}>×</button></div>))}</div>}
             </div>
-            <fieldset className="no-fs" disabled={view}>
+            {view && editPart && <div className="no-editbar on"><b>Editing the order</b><span>Save changes updates the order and its Xero upload; PO emails can then be resent. DBM's portals are not changed from here.</span>
+              {missingAll.length > 0 && <div className="no-misslist">{missingAll.map((t) => <button type="button" key={t} className="no-miss no-go" onClick={() => goTo(t)}>{t} <i>→</i></button>)}</div>}</div>}
+            <fieldset className="no-fs" disabled={view && !editPart}>
             <div className="no-hd">
               <div className={'no-f no-c1' + needCls('go-company')} id="go-company">Company <span className="req">*</span>
                 {!o.customer ? <div className="no-cwrap"><input value={cq} onChange={(e) => setCq(e.target.value)} placeholder="Type a company, name, phone or email…" aria-label="Company" autoFocus />
@@ -689,13 +695,7 @@ export default function NewOrder() {
           <div className="no-tabs" role="tablist">{tabs.map(([k, n, t, d, c]) => (
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 
-          {view && o.status !== 'cancelled' && (() => { const lab = { so: 'SO', po: 'PO', load: 'Load' }[tab]; return editPart === tab
-            ? <div className="no-editbar on"><b>Editing the {tab === 'so' ? 'sales order' : tab === 'po' ? 'purchase orders' : 'loads'}</b>
-                <span>Saved changes go to the order and its Xero upload{tab === 'load' ? '' : '; PO emails can then be resent'}. DBM's portals are not changed from here.</span>
-                <button type="button" className="btn" disabled={act === 'saveedit'} onClick={cancelEdit}>Cancel</button><button type="button" className="btn btn-red" disabled={act === 'saveedit'} onClick={saveEdit}>{act === 'saveedit' ? 'Saving…' : 'Save changes'}</button>
-                {missingAll.length > 0 && <div className="no-misslist">{missingAll.map((t) => <button type="button" key={t} className="no-miss no-go" onClick={() => goTo(t)}>{t} <i>→</i></button>)}</div>}</div>
-            : <div className="no-editbar"><span>Nothing here can be changed until you press Edit.</span><button type="button" className="btn" disabled={!!editPart || !!act} onClick={() => startEdit(tab)}>Edit {lab}</button></div>; })()}
-          <fieldset className="no-fs" disabled={view && editPart !== tab}>
+          <fieldset className="no-fs" disabled={view && !editPart}>
           {tab === 'so' && <>
           <section className="no-card" aria-label="Products" id="go-products">
             <div className="no-ct">Products</div>

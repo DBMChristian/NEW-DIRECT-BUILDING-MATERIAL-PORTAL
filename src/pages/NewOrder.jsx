@@ -422,14 +422,15 @@ export default function NewOrder() {
     /* the PO emails, with their numbers (EmailJS, from orders@) */
     const sent = [], failed = [];
     for (const x of (data.pos || []).filter((y) => y.send)) { const P = pos[x.sort]; if (!P) continue; const em = emailOf(P), m = poMail(P, x.number, data.number);
-      try { await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); sent.push(x.number + ' to ' + P.supplier); }
-      catch (e) { failed.push(x.number + ' to ' + P.supplier + ': ' + e.message); } }
+      try { await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); sent.push(x.number + ' to ' + P.supplier); await logEvent(id, 'po', x.number, x.number + ' emailed to ' + P.supplier + ' (' + em.to + ')'); }
+      catch (e) { failed.push(x.number + ' to ' + P.supplier + ': ' + e.message); await logEvent(id, 'po', x.number, x.number + ' email to ' + P.supplier + ' failed: ' + e.message); } }
     /* each PO set to Yes goes into its supplier's portal (OrderConcrete, OrderPods, OrderSteel): Direct's items only */
     const portal = [];
     for (const x of (data.pos || []).filter((y) => y.send)) { const P = pos[x.sort]; if (!P || !P.portal) continue;
       const r = await supabase.functions.invoke('portal-po', { body: { action: 'send', order_id: x.id } });
       let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
-      portal.push(b?.sent ? { ok: true, text: x.number + ' is in ' + P.portal + ' as ' + b.order_id } : { ok: false, text: x.number + ' not in ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : '') }); }
+      portal.push(b?.sent ? { ok: true, text: x.number + ' is in ' + P.portal + ' as ' + b.order_id } : { ok: false, text: x.number + ' not in ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : '') });
+      if (!b?.sent) await logEvent(id, 'po', x.number, x.number + ' not sent to ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer')); }
     /* Upload to Xero: the sales order and each PO, now (a failure stays in Admin › Not yet in Xero with its reason) */
     const xero = [];
     for (const qid of data.xero || []) {
@@ -474,7 +475,7 @@ export default function NewOrder() {
     if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
     setMsg(d.status === 'draft' ? { text: 'DRAFT-' + d.id + ' opened.' } : null);
     if (d.status !== 'draft') placedRef.current = true;   /* a placed order is shown, never saved over */
-    const nt = await supabase.from('order_notes').select('*').eq('order_id', d.id).order('created_at', { ascending: false }); setOrderNotes(nt.data || []);
+    const nt = await supabase.from('order_events').select('*').eq('order_id', d.id).order('at', { ascending: false }).order('id', { ascending: false }); setOrderNotes(nt.data || []);
   };
   const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
   useEffect(() => { if (viewId && products.length) openDraft(Number(viewId)); }, [viewId, products.length]);
@@ -486,6 +487,7 @@ export default function NewOrder() {
   const [bookAt, setBookAt] = useState({});   /* the day and time typed for booking a load */
   const [noteText, setNoteText] = useState('');
   const reopen = () => openDraft(o.id);
+  const logEvent = async (oid, part, ref, text) => { await supabase.from('order_events').insert({ order_id: oid, part, ref: ref || '', text, by_email: staff.email, by_name: staff.name || staff.email.split('@')[0] }); };
   const [editPart, setEditPart] = useState(null);   /* 'order' while the whole order is being edited */
   const startEdit = () => run('edit', async () => { const { error } = await supabase.rpc('begin_edit', { p_id: o.id }); if (error) throw error; setEditPart('order'); }, null);
   const cancelEdit = async () => { setEditPart(null); await supabase.rpc('end_edit', { p_id: o.id, p_part: '', p_save: false }); reopen(); };
@@ -509,14 +511,14 @@ export default function NewOrder() {
   const loadStatus = (L, st) => run('st' + L.uid, async () => { const r = await supabase.from('order_loads').update(st === 'pending' ? { status: 'pending', booked_date: null, booked_time: null } : { status: st }).eq('id', L.dbId); if (r.error) throw r.error; },
     st === 'delivered' ? 'Load ' + L.n + ' marked delivered.' : 'Load ' + L.n + ' is pending again.');
   const resendPo = (P) => run('mail' + P.uid, async () => { const em = emailOf(P); if (!em.to) throw new Error(P.supplier + ' has no email in Admin › Suppliers.');
-    const m = poMail(P, P.number, o.number); await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); }, 'PO email sent to ' + P.supplier + '.');
+    const m = poMail(P, P.number, o.number); await sendEmail({ to: em.to, cc: em.cc, subject: m.subject, html: m.html }); await logEvent(o.id, 'po', P.number, P.number + ' emailed to ' + P.supplier + ' (' + em.to + ')'); }, 'PO email sent to ' + P.supplier + '.');
   const toPortal = (P) => run('portal' + P.uid, async () => { const r = await supabase.functions.invoke('portal-po', { body: { action: 'send', order_id: P.dbId } });
     let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
-    if (!b?.sent) throw new Error('Not in ' + P.portal + ': ' + (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : '')); }, P.number + ' sent to ' + P.portal + '.');
+    if (!b?.sent) { const why = (b?.reason || b?.error || 'no answer') + (b?.problems?.length ? ' (' + b.problems.join('; ') + ')' : ''); if (!b?.order_id) await logEvent(o.id, 'po', P.number, P.number + ' not sent to ' + P.portal + ': ' + why); throw new Error('Not in ' + P.portal + ': ' + why); } }, P.number + ' sent to ' + P.portal + '.');
   const emailCustomer = () => run('cust', async () => { if (!o.email) throw new Error('No email for the invoice on this order.');
     const groups = soCats.map((c) => ({ title: c, lines: [...lines.filter((l) => l.category === c).map((l) => ({ name: lineName(l), qty: l.qty, price: l.price })), ...mergeCh(allCharges.filter((x) => x.cat === c && !x.off)).map((x) => ({ name: x.name, qty: x.qty, price: x.price }))] }));
     const lds = loads.map((L) => ({ what: 'Load ' + L.n + ' · ' + (L.fulfil === 'pickup' ? 'pick-up' : 'delivery'), when: (L.booked_date || L.date ? new Date((L.booked_date || L.date) + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) : 'to be booked') + ' · ' + (L.booked_time || L.time || '') }));
-    await sendEmail({ to: o.email, subject: 'Your order ' + o.number + ' · Direct Building Material', html: orderEmailHtml({ number: o.number, customer: o.customer?.name, contact: o.contact_name, site: headSite, loads: lds, groups, subtotal: sub, gst, total }) }); }, 'Order confirmation emailed to ' + o.email + '.');
+    await sendEmail({ to: o.email, subject: 'Your order ' + o.number + ' · Direct Building Material', html: orderEmailHtml({ number: o.number, customer: o.customer?.name, contact: o.contact_name, site: headSite, loads: lds, groups, subtotal: sub, gst, total }) }); await logEvent(o.id, 'so', o.number, 'Order confirmation emailed to ' + o.email); }, 'Order confirmation emailed to ' + o.email + '.');
   const addOrderNote = () => run('note', async () => { const t = noteText.trim(); if (!t) return;
     const r = await supabase.from('order_notes').insert({ order_id: o.id, text: t, by_email: staff.email, by_name: staff.name || staff.email.split('@')[0] }); if (r.error) throw r.error; setNoteText(''); });
   const cancelOrder = () => { const why = window.prompt('Cancel ' + o.number + '? Type the reason (it is kept on the order):'); if (why == null) return;
@@ -900,11 +902,8 @@ export default function NewOrder() {
 </>}              {tab === 'so' && <><div className="no-ah">CUSTOMER</div>
               <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button></>}
               </>}
-              <div className="no-ah">HISTORY</div>
-              <textarea className="no-desc" rows={2} value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note to this order…" />
-              <button type="button" className="btn" disabled={!!act || !noteText.trim()} onClick={addOrderNote}>Add note</button>
-              {orderNotes.map((n) => <div key={n.id} className="no-onote"><p>{n.text}</p><small>{n.by_name || n.by_email} · {new Date(n.created_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></div>)}
-              {o.placed_at && <div className="no-onote no-onote-ev"><p>{o.kind === 'quote' ? 'Quote saved' : 'Order placed'} as {o.number}</p><small>{o.created_by_name || ''} · {new Date(o.placed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></div>}
+              <div className="no-ah">HISTORY · {tab === 'po' ? 'PURCHASE ORDERS' : tab === 'load' ? 'LOADS' : 'SALES ORDER'}</div>
+              {(() => { const ev = orderNotes.filter((n) => n.part === tab); return !ev.length ? <p className="no-sub">Nothing yet.</p> : ev.map((n) => <div key={n.id} className={'no-onote' + (/refused|failed|not sent|not in|cancelled/i.test(n.text) ? ' no-onote-bad' : /placed as|made in Xero|is in |delivered|picked up/i.test(n.text) ? ' no-onote-ev' : '')}><p>{n.text}</p><small>{n.by_name || n.by_email} · {new Date(n.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></div>); })()}
               {tab === 'so' && o.status !== 'cancelled' && <button type="button" className="btn no-cancel" disabled={!!act} onClick={cancelOrder}>{act === 'cancel' ? 'Cancelling…' : 'Cancel order'}</button>}
             </div> : <>
             {o.customer?.on_hold && <div className="no-alert"><b>On hold:</b> this customer is on hold. Check before placing.</div>}

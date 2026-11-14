@@ -623,6 +623,22 @@ export default function NewOrder() {
   /* a placed order: the parts by their names (no "Build"), each with its Edit button */
   if (view) { tabs[0][2] = 'Sales order'; tabs[0][3] = 'What the customer buys'; tabs[1][2] = 'Purchase orders'; tabs[1][3] = 'What Direct orders'; tabs[2][2] = 'Loads'; tabs[2][3] = 'How it goes out'; }
 
+  /* the order's lines by material and its totals: the side of the form, or the sales order of a placed order */
+  const orderListJsx = (<>
+            {/* every line, by material: its items, then its additional charges */}
+            {soCats.length > 0 && <div className="no-sumlist">{soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = mergeCh(allCharges.filter((x) => x.cat === c && !x.off)); return (
+              <div key={c} className="no-sg">
+                <div className="no-sgh" style={{ background: HEAD[c] }}>{c}<b>{cash(r2(ls.reduce((t, l) => t + r2(l.qty * l.price), 0) + chs.reduce((t, x) => t + r2(x.qty * x.price), 0)))}</b></div>
+                <div className="no-ssh">Items</div>
+                {ls.map((l) => <div key={l.key} className="no-si"><span>{lineName(l)}<small>{l.code} · {Number(l.qty)} {l.unit} × {cash(l.price)}</small></span><b>{cash(r2(l.qty * l.price))}</b></div>)}
+                {chs.filter((x) => x.asItem).map((x) => <div key={x.load + x.key} className="no-si"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}
+                {chs.some((x) => !x.asItem) && <><div className="no-ssh">Additional charges</div>
+                  {chs.filter((x) => !x.asItem).map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
+              </div>); })}</div>}
+            <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
+            {(() => { const cs = r2(lines.reduce((t, l) => t + costOf(l), 0) + allCharges.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sub - cs); return <div className="no-prof"><div className="no-sl"><span>Cost (Xero)</span><b>{cash(cs)}</b></div><div className={'no-sl' + (pr < 0 ? ' neg' : '')}><span>Profit</span><b>{cash(pr)} · {pct(pr, sub)}%</b></div></div>; })()}
+  </>);
+
   return (
     <>
 
@@ -709,7 +725,8 @@ export default function NewOrder() {
             <button key={k} type="button" role="tab" aria-selected={tab === k} className={'no-tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}><i>{n}</i><span><b>{t}</b><small>{d}</small></span><em>{c}</em></button>))}</div>
 
           <fieldset className="no-fs" disabled={view && !editPart}>
-          {tab === 'so' && <>
+          {tab === 'so' && view && !editPart && <section className="no-card no-soview" aria-label="Sales order">{orderListJsx}</section>}
+          {tab === 'so' && !(view && !editPart) && <>
           <section className="no-card" aria-label="Products" id="go-products">
             <div className="no-ct">Products</div>
             <div className="no-cats">{CATS.filter((c) => catCount(c)).map((c) => <button key={c} type="button" className={'no-cat' + (cat === c ? ' on' : '')} style={{ '--c': COLOR[c] }} onClick={() => setCat(cat === c ? '' : c)}><i />{c}</button>)}</div>
@@ -858,24 +875,13 @@ export default function NewOrder() {
             <div className="no-prevmail" dangerouslySetInnerHTML={{ __html: preview.html }} /></div></div>}
         <aside className="no-side" aria-label="The order">
           <section className="no-card">
-            <div className="no-sidehd">{o.kind === 'quote' ? 'QUOTE' : 'ORDER'}</div>
-            {/* every line, by material: its items, then its additional charges */}
-            {soCats.length > 0 && <div className="no-sumlist">{soCats.map((c) => { const ls = lines.filter((l) => l.category === c), chs = mergeCh(allCharges.filter((x) => x.cat === c && !x.off)); return (
-              <div key={c} className="no-sg">
-                <div className="no-sgh" style={{ background: HEAD[c] }}>{c}<b>{cash(r2(ls.reduce((t, l) => t + r2(l.qty * l.price), 0) + chs.reduce((t, x) => t + r2(x.qty * x.price), 0)))}</b></div>
-                <div className="no-ssh">Items</div>
-                {ls.map((l) => <div key={l.key} className="no-si"><span>{lineName(l)}<small>{l.code} · {Number(l.qty)} {l.unit} × {cash(l.price)}</small></span><b>{cash(r2(l.qty * l.price))}</b></div>)}
-                {chs.filter((x) => x.asItem).map((x) => <div key={x.load + x.key} className="no-si"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}
-                {chs.some((x) => !x.asItem) && <><div className="no-ssh">Additional charges</div>
-                  {chs.filter((x) => !x.asItem).map((x) => <div key={x.load + x.key} className="no-si no-sic"><span>{x.name}<small>{x.code} · {Number(x.qty)} × {cash(x.price)}</small></span><b>{cash(r2(x.qty * x.price))}</b></div>)}</>}
-              </div>); })}</div>}
-            <div className="no-tot"><div className="no-sl"><span>Products</span><b>{cash(goods)}</b></div><div className="no-sl"><span>Additional charges</span><b>{cash(chSum)}</b></div><div className="no-sl"><span>GST</span><b>{cash(gst)}</b></div><div className="no-sl no-big"><span>Total</span><b>{cash(total)}</b></div></div>
-            {(() => { const cs = r2(lines.reduce((t, l) => t + costOf(l), 0) + allCharges.filter((x) => !x.off).reduce((t, x) => t + costOf(x), 0)), pr = r2(sub - cs); return <div className="no-prof"><div className="no-sl"><span>Cost (Xero)</span><b>{cash(cs)}</b></div><div className={'no-sl' + (pr < 0 ? ' neg' : '')}><span>Profit</span><b>{cash(pr)} · {pct(pr, sub)}%</b></div></div>; })()}
-            {view ? <div className="no-acts">
+            {!(view && !editPart) && <><div className="no-sidehd">{o.kind === 'quote' ? 'QUOTE' : 'ORDER'}</div>
+            {orderListJsx}</>}
+            {view ? <div className="no-acts"><div className="no-sidehd">{tab === 'po' ? 'PURCHASE ORDERS' : tab === 'load' ? 'LOADS' : 'ACTIONS'}</div>
               {placedInfo && placedInfo.number === o.number && <div className="no-placed">{[...(placedInfo.xero || []), ...(placedInfo.sent || []).map((t) => ({ ok: true, text: 'PO email sent: ' + t })), ...(placedInfo.failed || []).map((t) => ({ ok: false, text: 'PO email not sent: ' + t })), ...(placedInfo.portal || [])].map((x, i) => <p key={i} className={x.ok ? 'no-okl' : 'no-badl'}>{x.ok ? '✓ ' : '✕ '}{x.text}</p>)}{!placedInfo.upload && <p className="no-sub">Not uploaded to Xero.</p>}</div>}
               {actMsg && <p className={actMsg.bad ? 'msg bad' : 'msg'} role="status">{actMsg.text}</p>}
               {o.status !== 'cancelled' && <>
-              <div className="no-ah">LOADS</div>
+{tab === 'load' && <>              <div className="no-ah">LOADS</div>
               {loads.map((L) => { const cats = [...new Set(lines.filter((l) => qtyIn(L.items, l.key) > 0).map((l) => l.category))].join(', '); return (
                 <div key={L.uid} className="no-al"><b>Load {L.n}</b> · {cats} · {L.fulfil === 'pickup' ? 'Pick-up' : 'Delivery'}
                   {L.status === 'booked' ? <><small className="no-okl">Booked {L.booked_date ? new Date(L.booked_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) : ''} {L.booked_time || ''}</small>
@@ -885,20 +891,21 @@ export default function NewOrder() {
                     <select value={(bookAt[L.uid] || {}).time ?? L.time ?? 'Any time'} onChange={(e) => setBookAt((m) => ({ ...m, [L.uid]: { ...(m[L.uid] || {}), time: e.target.value } }))} aria-label={'Time for load ' + L.n}>{TIMES.map((t) => <option key={t}>{t}</option>)}</select>
                     <button type="button" className="btn btn-red" disabled={!!act} onClick={() => bookLoad(L)}>{act === 'book' + L.uid ? 'Booking…' : 'Book'}</button>{L.status === 'on_hold' && <small className="no-badl">On hold</small>}</span>}
                 </div>); })}
-              <div className="no-ah">PURCHASE ORDERS</div>
+</>}{tab === 'po' && <>              <div className="no-ah">PURCHASE ORDERS</div>
               {!pos.length && <p className="no-sub">No POs.</p>}
               {pos.map((P) => <div key={P.uid} className="no-al"><b>{P.number || 'PO'}</b> · {P.supplier}{P.portal ? ' · ' + P.portal : ''}
                 <small>{P.send ? 'Sent to the supplier' : 'Not sent'}{P.supplier_ref ? ' · in ' + P.portal + ' as ' + P.supplier_ref : ''}{P.portal_error && P.portal_error !== 'sending' ? ' · portal: ' + P.portal_error : ''}</small>
                 <span className="no-row"><button type="button" className="btn" onClick={() => setPreview(poMail(P, P.number, o.number))}>Preview</button><button type="button" className="btn" disabled={!!act} onClick={() => resendPo(P)}>{act === 'mail' + P.uid ? 'Sending…' : P.send ? 'Resend email' : 'Email it'}</button>
                   {P.portal && !P.supplier_ref && <button type="button" className="btn" disabled={!!act} onClick={() => toPortal(P)}>{act === 'portal' + P.uid ? 'Sending…' : 'To ' + P.portal}</button>}</span></div>)}
-              <div className="no-ah">CUSTOMER</div>
-              <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button>
+</>}              {tab === 'so' && <><div className="no-ah">CUSTOMER</div>
+              <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button></>}
               </>}
-              <div className="no-ah">NOTES</div>
+              <div className="no-ah">HISTORY</div>
               <textarea className="no-desc" rows={2} value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note to this order…" />
               <button type="button" className="btn" disabled={!!act || !noteText.trim()} onClick={addOrderNote}>Add note</button>
               {orderNotes.map((n) => <div key={n.id} className="no-onote"><p>{n.text}</p><small>{n.by_name || n.by_email} · {new Date(n.created_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></div>)}
-              {o.status !== 'cancelled' && <button type="button" className="btn no-cancel" disabled={!!act} onClick={cancelOrder}>{act === 'cancel' ? 'Cancelling…' : 'Cancel order'}</button>}
+              {o.placed_at && <div className="no-onote no-onote-ev"><p>{o.kind === 'quote' ? 'Quote saved' : 'Order placed'} as {o.number}</p><small>{o.created_by_name || ''} · {new Date(o.placed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></div>}
+              {tab === 'so' && o.status !== 'cancelled' && <button type="button" className="btn no-cancel" disabled={!!act} onClick={cancelOrder}>{act === 'cancel' ? 'Cancelling…' : 'Cancel order'}</button>}
             </div> : <>
             {o.customer?.on_hold && <div className="no-alert"><b>On hold:</b> this customer is on hold. Check before placing.</div>}
             {overLimit && <div className="no-alert"><b>Over the credit limit:</b> owes {cash(owes)} + this order {cash(total)} = {cash(owes + total)} (limit {cash(o.customer.credit_limit)}).</div>}

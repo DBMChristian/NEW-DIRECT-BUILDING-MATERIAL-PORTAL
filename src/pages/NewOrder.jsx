@@ -529,6 +529,11 @@ export default function NewOrder() {
     await sendEmail({ to: o.email, subject: 'Your order ' + o.number + ' · Direct Building Material', html: orderEmailHtml({ number: o.number, customer: o.customer?.name, contact: o.contact_name, site: headSite, loads: lds, groups, subtotal: sub, gst, total }) }); await logEvent(o.id, 'so', o.number, 'Order confirmation emailed to ' + o.email); }, 'Order confirmation emailed to ' + o.email + '.');
   const addOrderNote = () => run('note', async () => { const t = noteText.trim(); if (!t) return;
     const r = await supabase.from('order_notes').insert({ order_id: o.id, text: t, by_email: staff.email, by_name: staff.name || staff.email.split('@')[0] }); if (r.error) throw r.error; setNoteText(''); });
+  const setUpload = (on) => run('xero', async () => { const { data, error } = await supabase.rpc('set_upload_xero', { p_id: o.id, p_on: on }); if (error) throw error;
+    const ids = data?.xero || [], bad = [];
+    for (const qid of ids) { const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } } if (!b?.ok) bad.push(b?.error || 'no answer'); }
+    if (bad.length) throw new Error((ids.length - bad.length) + ' of ' + ids.length + ' in Xero; Xero refused the rest: ' + bad.join('; ') + ' (they wait in Admin › Not yet in Xero)'); },
+    on ? 'Upload to Xero: Yes. The invoice and the POs are in Xero.' : 'Upload to Xero: No. Nothing more goes to Xero.');
   const uploadSo = () => run('xero', async () => { const { data, error } = await supabase.rpc('upload_so', { p_id: o.id }); if (error) throw error;
     const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: data.id } });
     let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
@@ -915,7 +920,8 @@ export default function NewOrder() {
 </>}              {tab === 'so' && o.kind === 'order' && (() => { const inX = soXero.find((x) => x.status === 'done' && x.xero_id && x.action !== 'delete'), last = soXero[0], inv = 'INV-' + String(o.number || '').replace(/\D/g, '');
                 return <><div className="no-ah">XERO</div>
                   <p className="no-xst">{inX ? <><b className="no-okl">{inv} is in Xero</b>{last?.sent_at ? ' · last ' + new Date(last.sent_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</> : last?.status === 'failed' ? <b className="no-badl">{inv}: Xero refused it · {last.last_error}</b> : <>{inv} is not in Xero{o.upload_xero === false ? ' (placed without uploading)' : ''}</>}</p>
-                  <button type="button" className="btn" disabled={!!act} onClick={uploadSo}>{act === 'xero' ? 'Sending to Xero…' : inX ? 'Update in Xero' : 'Upload to Xero'}</button></>; })()}
+                  <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => { if ((v === 'yes') !== (o.upload_xero !== false)) setUpload(v === 'yes'); }} options={[['yes', 'Yes'], ['no', 'No']]} />
+                    <small>{act === 'xero' ? 'Sending to Xero…' : o.upload_xero === false ? 'No: nothing of this order goes to Xero, edits included.' : 'Yes: the invoice and every PO are in Xero, and every saved edit updates them.'}</small></div></>; })()}
               {tab === 'so' && <><div className="no-ah">CUSTOMER</div>
               <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button></>}
               </>}

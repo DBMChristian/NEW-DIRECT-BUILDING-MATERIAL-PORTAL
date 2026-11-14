@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import PageHeader from '../components/PageHeader.jsx';
 import AddressInput from '../components/AddressInput.jsx';
-import { sendEmail, poEmailHtml, orderEmailHtml, invoiceHtml, PORTAL_URL } from '../lib/emailjs.js';
+import { sendEmail, poEmailHtml, orderEmailHtml, invoiceHtml, bookingEmailHtml, PORTAL_URL } from '../lib/emailjs.js';
 import directLogo from '../assets/direct-logo.png';
 import { chargesFor, impcFor, FORM_CHARGES, WP_LOCATIONS } from '../lib/charges.js';
 import { groupsOf } from '../lib/groups.js';
@@ -468,7 +468,7 @@ export default function NewOrder() {
     const L2 = prod.map((l) => { const kk = key(); k[l.id] = kk; const p = products.find((x) => x.id === l.product_id);
       const cu = l.custom || {}; return { key: kk, product_id: l.product_id, code: l.code, name: cu.base || l.name, baseName: cu.base || l.name, eps: cu.eps || {}, cut: cu.cut || {}, desc: cu.desc || '', unit: l.unit, category: p?.category || 'Others', qty: Number(l.qty), price: Number(l.price), list: Number(l.list_price ?? l.price), reason: l.price_reason || '' }; });
     const site = String(d.site_street || '') + (d.site_suburb ? ', ' + d.site_suburb : '');
-    setO({ id: d.id, status: d.status, number: d.number, placed_at: d.placed_at, created_by_name: d.created_by_name, total_saved: d.total, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: digits8(d.contact_phone), mobile: true,
+    setO({ id: d.id, status: d.status, order_status: d.order_status || 'Working On It', booking_sent_at: d.booking_sent_at, number: d.number, placed_at: d.placed_at, created_by_name: d.created_by_name, total_saved: d.total, kind: d.kind, customer: d.customer, terms: d.terms, price_list: d.price_list, contact_name: d.contact_name, contact_phone: digits8(d.contact_phone), mobile: true,
       email: d.email, upload_xero: d.upload_xero !== false, their_po: d.their_po, instructions: d.instructions, site_street: d.site_street, site_suburb: d.site_suburb, delivery_date: d.delivery_date || '', booking_time: d.booking_time || '', sms: d.sms_confirm, plans: d.plans || [] });
     setLines(L2);
     const luid = {};
@@ -582,6 +582,36 @@ export default function NewOrder() {
       if (!window.confirm('Email ' + d.inv + ' to ' + o.email + '?')) throw new Error('Not sent.');
       await sendEmail({ to: o.email, subject: 'Tax invoice ' + d.inv + ' · ' + o.number + ' · Direct Building Material', html: d.html });
       await logEvent(o.id, 'so', d.inv, d.inv + ' emailed to ' + o.email); }, 'Invoice emailed to ' + o.email + '.'); };
+  /* the order's status; Booked sends the booking confirmation once by itself (13 Nov 2026) */
+  const ORDER_STATUSES = ['Open', 'Working On It', 'Booked', 'On Hold', 'Cancelled', 'Completed'];
+  const sendBooking = async (resend) => {
+    const { data: lds } = await supabase.from('order_loads').select('*, order_load_items(qty, order_lines(name))').eq('order_id', o.id).order('sort');
+    const fmt = (d) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
+    const ls = (lds || []).filter((L) => L.status !== 'cancelled').map((L, i) => ({ what: 'Load ' + (i + 1) + ' · ' + (L.fulfil === 'pickup' ? 'Pick-up' : 'Delivery') + ' · ' + L.category,
+      items: (L.order_load_items || []).map((x) => Number(x.qty) + ' × ' + (x.order_lines?.name || '')).join(', '), when: fmt(L.booked_date || L.want_date || o.delivery_date) + ' · ' + (L.booked_time || L.want_time || o.booking_time || 'Any time') }));
+    const out = [];
+    if (o.email) { await sendEmail({ to: o.email, subject: 'Booking confirmed: ' + o.number + ' · Direct Building Material', html: bookingEmailHtml({ number: o.number, customer: o.customer?.name, contact: o.contact_name, site: headSite, loads: ls, logo: PORTAL_URL + directLogo }) });
+      await logEvent(o.id, 'so', o.number, (resend ? 'Booking confirmation resent' : 'Booking confirmation emailed') + ' to ' + o.email); out.push('emailed to ' + o.email); }
+    if (o.sms && o.contact_phone) {
+      const first = ls[0], text = 'Direct Building Material: your order ' + o.number + ' is booked' + (first ? ' for ' + first.when : '') + (ls.length > 1 ? ' (' + ls.length + ' loads)' : '') + ' at ' + headSite + '. Questions? Reply to our email or call us.';
+      const r = await supabase.functions.invoke('send-sms', { body: { to: phoneOut(o), text, order_id: o.id, ref: o.number, label: resend ? 'Booking confirmation text resent' : 'Booking confirmation text' } });
+      let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
+      if (b?.ok) out.push('texted to ' + phoneOut(o)); else { out.push('text not sent (' + (b?.error || 'no answer') + ')'); await logEvent(o.id, 'so', o.number, 'Booking confirmation text not sent: ' + (b?.error || 'no answer')); } }
+    if (!resend) await supabase.from('orders').update({ booking_sent_at: new Date().toISOString() }).eq('id', o.id);
+    return out;
+  };
+  const setOrderStatus = (v) => {
+    if (v === o.order_status) return;
+    if (v === 'Cancelled') { cancelOrder(); return; }
+    run('status', async () => {
+      const r = await supabase.from('orders').update({ order_status: v, updated_at: new Date().toISOString() }).eq('id', o.id); if (r.error) throw r.error;
+      if (v === 'Booked') {
+        /* the loads not booked yet are booked for the day and time asked */
+        for (const L of loads) if (L.dbId && (L.status === 'pending' || L.status === 'on_hold')) await supabase.from('order_loads').update({ status: 'booked', booked_date: L.date || o.delivery_date || null, booked_time: L.time || o.booking_time || 'Any time' }).eq('id', L.dbId);
+        if (!o.booking_sent_at) { const out = await sendBooking(false); setActMsg({ text: 'Booked. Booking confirmation ' + (out.join(', ') || 'not sent: no email or mobile on the order') + '.' }); }
+      } }, v === 'Booked' ? null : 'Status: ' + v + '.');
+  };
+  const resendBooking = () => run('booking', async () => { const out = await sendBooking(true); if (!out.length) throw new Error('No email or mobile on the order.'); setActMsg({ text: 'Booking confirmation ' + out.join(', ') + '.' }); }, null);
   const cancelOrder = () => { const why = window.prompt('Cancel ' + o.number + '? Type the reason (it is kept on the order):'); if (why == null) return;
     run('cancel', async () => { const { data, error } = await supabase.rpc('cancel_order', { p_id: o.id, p_reason: why }); if (error) throw error;
       for (const qid of data?.xero || []) await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); }, o.number + ' cancelled.'); };
@@ -708,7 +738,7 @@ export default function NewOrder() {
       <div className={'no-wrap' + (view && !editPart ? ' no-ro' : '')}>
         <div className="no-top">
           <section className="no-card no-head" aria-label="Customer">
-            <div className="no-bar">{view ? <h1>{o.number}<span className={'no-ost no-ost-' + o.status}>{o.status === 'cancelled' ? 'CANCELLED' : o.kind === 'quote' ? 'QUOTE' : 'PLACED'}</span><small>{o.placed_at ? new Date(o.placed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + (o.created_by_name ? ' by ' + o.created_by_name : '') : ''}</small></h1> : <h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>}
+            <div className="no-bar">{view ? <h1>{o.number}{o.kind === 'quote' ? <span className="no-ost">QUOTE</span> : <select className={'no-ostsel no-os-' + String(o.order_status || '').replace(/\s+/g, '-').toLowerCase()} value={o.order_status || 'Working On It'} disabled={o.status === 'cancelled' || !!act} onChange={(e) => setOrderStatus(e.target.value)} aria-label="Order status">{ORDER_STATUSES.map((x) => <option key={x}>{x}</option>)}</select>}<small>{o.placed_at ? new Date(o.placed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) + (o.created_by_name ? ' by ' + o.created_by_name : '') : ''}</small></h1> : <h1>NEW ORDER{o.id ? <small> DRAFT-{o.id}{saved ? ' · saved ' + saved.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}</small> : null}</h1>}
               {view ? <span className="no-bar-r">
                 {o.status !== 'cancelled' && (editPart
                   ? <><button type="button" className="btn" disabled={act === 'saveedit'} onClick={cancelEdit}>Cancel</button><button type="button" className="btn btn-red" disabled={act === 'saveedit'} onClick={saveEdit}>{act === 'saveedit' ? 'Saving…' : 'Save changes'}</button></>
@@ -996,6 +1026,7 @@ export default function NewOrder() {
                   <p className="no-xst">{inX ? <><b className="no-okl">{inv} is in Xero</b>{last?.sent_at ? ' · last ' + new Date(last.sent_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</> : last?.status === 'failed' ? <b className="no-badl">{inv}: Xero refused it · {last.last_error}</b> : <>{inv} is not in Xero{o.upload_xero === false ? ' (placed without uploading)' : ''}</>}</p>
                   <div className="no-f no-upx">Upload to Xero <span className="req">*</span><Seg value={o.upload_xero === false ? 'no' : 'yes'} set={(v) => { if ((v === 'yes') !== (o.upload_xero !== false)) setUpload(v === 'yes'); }} options={[['yes', 'Yes'], ['no', 'No']]} />
                     <small>{act === 'xero' ? 'Sending to Xero…' : o.upload_xero === false ? 'No: nothing of this order goes to Xero, edits included.' : 'Yes: the invoice and every PO are in Xero, and every saved edit updates them.'}</small></div></>; })()}
+              {tab === 'so' && o.booking_sent_at && <button type="button" className="btn" disabled={!!act} onClick={resendBooking}>{act === 'booking' ? 'Sending…' : 'Resend booking confirmation'}</button>}
               {tab === 'so' && <><div className="no-ah">CUSTOMER</div>
               <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button></>}
               </>}

@@ -819,3 +819,8 @@ tr.no-flash td{background:#FEF2F2!important}
 .no-pays{display:flex;flex-direction:column;font-size:12px}.no-pays div{display:flex;justify-content:space-between;padding:3px 2px;border-bottom:1px dashed #E7E5E4;color:#44403C}
 .no-link{display:flex;flex-direction:column;gap:8px}.no-link input{height:32px;border:1px solid #b9c0c8;border-radius:4px;padding:0 8px;font:inherit;font-size:12px;width:100%;box-sizing:border-box}.no-link p{margin:0}
 .no-askb .no-seg button{padding:0 8px;font-size:12px}
+
+/* the order's status in the header (13 Nov 2026) */
+.no-ostsel{margin-left:10px;vertical-align:2px;height:26px;border-radius:5px;border:1px solid transparent;font:inherit;font-size:11.5px;font-weight:800;letter-spacing:.04em;padding:0 6px;cursor:pointer;text-transform:uppercase}
+.no-os-open{background:#E0E7FF;color:#3730A3}.no-os-working-on-it{background:#FEF3C7;color:#92400E}.no-os-booked{background:#DCFCE7;color:#166534}
+.no-os-on-hold{background:#FFEDD5;color:#9A3412}.no-os-cancelled{background:#E7E5E4;color:#57534E}.no-os-completed{background:#1E1A17;color:#fff}

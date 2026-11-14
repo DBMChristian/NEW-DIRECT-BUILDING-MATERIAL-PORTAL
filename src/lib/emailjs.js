@@ -110,3 +110,18 @@ export function invoiceHtml({ inv, order, date, due, customer, contact, email, s
     + (company.bank ? '<div style="margin-top:18px;padding:10px 12px;background:#FAFAF9;border:1px solid #E7E5E4;border-radius:6px;font-size:12px"><b>How to pay:</b> ' + esc(company.bank) + ' · Reference: ' + esc(inv) + '</div>' : '')
     + '<div style="margin-top:22px;font-size:11px;color:#78716C;text-align:center">Thank you for your business · Direct Building Material</div></div>';
 }
+
+/* the booking confirmation to the customer (13 Nov 2026): Direct's logo, the order, the site, and each load's booked
+   day and time */
+export function bookingEmailHtml({ number, customer, contact, site, loads, logo }) {
+  return '<div style="background:#F4F2EE;padding:24px 0;font-family:Arial,Helvetica,sans-serif;color:#1E1A17"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">'
+    + '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:10px;overflow:hidden">'
+    + '<tr><td style="padding:18px 24px;border-bottom:4px solid #B91C1C">' + (logo ? '<img src="' + esc(logo) + '" alt="DIRECT BUILDING MATERIAL" width="170" style="display:block;width:170px;height:auto;border:0">' : '<b style="font-size:18px;color:#B91C1C">DIRECT</b> BUILDING MATERIAL') + '</td></tr>'
+    + '<tr><td style="padding:22px 24px"><div style="font-size:12px;color:#78716C;letter-spacing:1px">BOOKING CONFIRMATION</div><div style="font-size:24px;font-weight:bold;margin:2px 0 8px">' + esc(number) + '</div>'
+    + '<div style="font-size:14px;color:#44403C;line-height:1.6">Hi ' + esc(contact || customer) + ', your order is booked.</div>'
+    + '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:16px 0;border:1px solid #E7E5E4;border-radius:8px;overflow:hidden">'
+    + loads.map((l) => '<tr><td style="padding:10px 14px;border-top:1px solid #F0EEEA;font-size:13px"><b>' + esc(l.what) + '</b><br><span style="color:#57534E">' + esc(l.items) + '</span></td><td style="padding:10px 14px;border-top:1px solid #F0EEEA;font-size:14px;font-weight:bold;text-align:right;white-space:nowrap">' + esc(l.when) + '</td></tr>').join('')
+    + '</table><div style="font-size:13px;line-height:1.6"><b>Site:</b> ' + esc(site) + '</div>'
+    + '<div style="font-size:12px;color:#78716C;margin-top:16px">Please make sure the site is ready and accessible. Questions or changes: reply to this email.</div></td></tr>'
+    + '<tr><td style="background:#1E1A17;color:#D6D3D1;font-size:11px;padding:12px 24px;text-align:center">Direct Building Material · 16 Cassola Place, Penrith NSW · ABN 23 675 244 694</td></tr></table></td></tr></table></div>';
+}

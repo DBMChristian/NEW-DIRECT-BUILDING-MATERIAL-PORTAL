@@ -64,6 +64,7 @@ export default function NewOrder() {
   const [uploading, setUploading] = useState(false);
   const [newCust, setNewCust] = useState(null);
   const [orderNotes, setOrderNotes] = useState([]);
+  const [soXero, setSoXero] = useState([]);
   const [folded, setFolded] = useState({});   /* materials minimised in Build SO */
   const [foldedPo, setFoldedPo] = useState({});   /* POs minimised in Build PO */
   const [cq, setCq] = useState(''); const [cHits, setCHits] = useState([]);
@@ -480,6 +481,8 @@ export default function NewOrder() {
     if (d.customer_id) { const { data } = await supabase.from('customer_notes').select('*').eq('customer_id', d.customer_id).order('created_at', { ascending: false }); setNotes(data || []); }
     setMsg(d.status === 'draft' ? { text: 'DRAFT-' + d.id + ' opened.' } : null);
     if (d.status !== 'draft') placedRef.current = true;   /* a placed order is shown, never saved over */
+    const xq = d.number ? await supabase.from('xero_queue').select('id, action, status, last_error, xero_id, sent_at').eq('ref', 'INV-' + String(d.number).replace(/\D/g, '')).order('id', { ascending: false }) : { data: [] };
+    setSoXero(xq.data || []);
     const nt = await supabase.from('order_events').select('*').eq('order_id', d.id).order('at', { ascending: false }).order('id', { ascending: false }); setOrderNotes(nt.data || []);
   };
   const dropDraft = async (id) => { if (!window.confirm('Delete DRAFT-' + id + '?')) return; await supabase.from('orders').delete().eq('id', id).eq('status', 'draft'); loadDrafts(); };
@@ -526,6 +529,10 @@ export default function NewOrder() {
     await sendEmail({ to: o.email, subject: 'Your order ' + o.number + ' · Direct Building Material', html: orderEmailHtml({ number: o.number, customer: o.customer?.name, contact: o.contact_name, site: headSite, loads: lds, groups, subtotal: sub, gst, total }) }); await logEvent(o.id, 'so', o.number, 'Order confirmation emailed to ' + o.email); }, 'Order confirmation emailed to ' + o.email + '.');
   const addOrderNote = () => run('note', async () => { const t = noteText.trim(); if (!t) return;
     const r = await supabase.from('order_notes').insert({ order_id: o.id, text: t, by_email: staff.email, by_name: staff.name || staff.email.split('@')[0] }); if (r.error) throw r.error; setNoteText(''); });
+  const uploadSo = () => run('xero', async () => { const { data, error } = await supabase.rpc('upload_so', { p_id: o.id }); if (error) throw error;
+    const r = await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: data.id } });
+    let b = r.data; if (r.error) { try { b = await r.error.context.json(); } catch { b = { error: r.error.message }; } }
+    if (!b?.ok) throw new Error('Xero: ' + (b?.error || 'no answer') + ' (it waits in Admin › Not yet in Xero)'); }, 'INV-' + String(o.number || '').replace(/\D/g, '') + ' is in Xero.');
   const cancelOrder = () => { const why = window.prompt('Cancel ' + o.number + '? Type the reason (it is kept on the order):'); if (why == null) return;
     run('cancel', async () => { const { data, error } = await supabase.rpc('cancel_order', { p_id: o.id, p_reason: why }); if (error) throw error;
       for (const qid of data?.xero || []) await supabase.functions.invoke('xero', { body: { action: 'send_queue', id: qid } }); }, o.number + ' cancelled.'); };
@@ -905,7 +912,11 @@ export default function NewOrder() {
                 <small>{P.send ? 'Sent to the supplier' : 'Not sent'}{P.supplier_ref ? ' · in ' + P.portal + ' as ' + P.supplier_ref : ''}{P.portal_error && P.portal_error !== 'sending' ? ' · portal: ' + P.portal_error : ''}</small>
                 <span className="no-row"><button type="button" className="btn" onClick={() => setPreview(poMail(P, P.number, o.number))}>Preview</button><button type="button" className="btn" disabled={!!act} onClick={() => resendPo(P)}>{act === 'mail' + P.uid ? 'Sending…' : P.send ? 'Resend email' : 'Email it'}</button>
                   {P.portal && !P.supplier_ref && <button type="button" className="btn" disabled={!!act} onClick={() => toPortal(P)}>{act === 'portal' + P.uid ? 'Sending…' : 'To ' + P.portal}</button>}</span></div>)}
-</>}              {tab === 'so' && <><div className="no-ah">CUSTOMER</div>
+</>}              {tab === 'so' && o.kind === 'order' && (() => { const inX = soXero.find((x) => x.status === 'done' && x.xero_id && x.action !== 'delete'), last = soXero[0], inv = 'INV-' + String(o.number || '').replace(/\D/g, '');
+                return <><div className="no-ah">XERO</div>
+                  <p className="no-xst">{inX ? <><b className="no-okl">{inv} is in Xero</b>{last?.sent_at ? ' · last ' + new Date(last.sent_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</> : last?.status === 'failed' ? <b className="no-badl">{inv}: Xero refused it · {last.last_error}</b> : <>{inv} is not in Xero{o.upload_xero === false ? ' (placed without uploading)' : ''}</>}</p>
+                  <button type="button" className="btn" disabled={!!act} onClick={uploadSo}>{act === 'xero' ? 'Sending to Xero…' : inX ? 'Update in Xero' : 'Upload to Xero'}</button></>; })()}
+              {tab === 'so' && <><div className="no-ah">CUSTOMER</div>
               <button type="button" className="btn" disabled={!!act} onClick={emailCustomer}>{act === 'cust' ? 'Sending…' : 'Email the order confirmation'}</button></>}
               </>}
               <div className="no-ah">HISTORY · {tab === 'po' ? 'PURCHASE ORDERS' : tab === 'load' ? 'LOADS' : 'SALES ORDER'}</div>

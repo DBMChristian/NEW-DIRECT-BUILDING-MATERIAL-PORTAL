@@ -788,3 +788,12 @@ tr.no-flash td{background:#FEF2F2!important}
 .no-ro .no-chips{margin:4px 16px 0}
 @media (max-width:1000px){.no-sumhd{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:600px){.no-sumhd{grid-template-columns:1fr}.no-sv.wide{grid-column:auto}}
+
+/* the summary, quieter: smaller, IBM Plex (13 Nov 2026) */
+.no-sumhd{gap:10px 20px;padding:12px 16px 4px}
+.no-sv{gap:2px}
+.no-sv>span{font-family:'IBM Plex Mono',ui-monospace,Consolas,monospace;font-size:9.5px;font-weight:500;letter-spacing:.12em;color:#8A847E}
+.no-sv>b{font-family:'IBM Plex Sans',Inter,Arial,sans-serif;font-size:12.5px;font-weight:500;color:#292524;line-height:1.4}
+.no-sv>b i{font-size:12px}
+.no-sv>b .link{font-size:12px}
+.no-ro .no-chips{margin:2px 16px 0}
